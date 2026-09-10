@@ -1,0 +1,59 @@
+{
+  "name": "mara-music",
+  "productName": "Mara Music",
+  "version": "1.0.0",
+  "description": "مشغل موسيقى محلي لمطعم مارا يعمل على ويندوز مع تحكم كامل من الجوال",
+  "main": "src/main/index.js",
+  "author": "Mara",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "dist": "electron-builder --win --x64",
+    "pack": "electron-builder --win --x64 --dir",
+    "test": "node tools/smoke-test.js",
+    "icons": "node tools/make-icons.js",
+    "test-audio": "node tools/make-test-audio.js"
+  },
+  "dependencies": {
+    "chokidar": "^3.6.0",
+    "express": "^4.19.2",
+    "multer": "^2.0.1",
+    "music-metadata": "^10.5.0",
+    "qrcode": "^1.5.4",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "sa.mara.music",
+    "productName": "Mara Music",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "artifactName": "MaraMusic-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Mara Music"
+    }
+  }
+}

@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+  <meta name="theme-color" content="#0b0d12" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="مارا ميوزك" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <link rel="icon" href="icons/icon-192.png" />
+  <link rel="stylesheet" href="style.css" />
+  <title>مارا ميوزك — التحكم</title>
+</head>
+<body>
+
+  <!-- ============================ تسجيل الدخول ============================ -->
+  <section id="view-login" class="screen login">
+    <div class="login-box">
+      <div class="logo">♪</div>
+      <h1>مارا ميوزك</h1>
+      <p class="sub">أدخل الرمز للتحكم بموسيقى المطعم</p>
+      <div class="pin-display" id="pin-display"></div>
+      <div class="keypad" id="keypad"></div>
+      <div class="error" id="login-error"></div>
+    </div>
+  </section>
+
+  <!-- ================================ التطبيق ============================= -->
+  <div id="app" hidden>
+
+    <div class="banner" id="auto-banner" hidden>
+      <span id="auto-banner-text"></span>
+      <button class="link" id="auto-banner-resume" hidden>استئناف الآن</button>
+    </div>
+
+    <!-- ------------------------------ الآن ------------------------------ -->
+    <section class="screen view" id="view-now">
+      <header class="view-head">
+        <div class="source" id="now-source">كل الأغاني</div>
+        <button class="icon-btn" id="btn-logout" title="خروج">⎋</button>
+      </header>
+
+      <div class="cover-wrap">
+        <img id="now-cover" alt="" hidden />
+        <div class="cover-fallback" id="now-cover-fallback">♪</div>
+      </div>
+
+      <div class="now-meta">
+        <h2 id="now-title">لا يوجد تشغيل</h2>
+        <p id="now-artist"></p>
+      </div>
+
+      <div class="seek">
+        <input type="range" id="seek" min="0" max="1000" value="0" />
+        <div class="times">
+          <span id="now-position">0:00</span>
+          <span id="now-duration">0:00</span>
+        </div>
+      </div>
+
+      <div class="transport">
+        <button class="tbtn" id="btn-shuffle" title="عشوائي">🔀</button>
+        <button class="tbtn big" id="btn-prev">⏮</button>
+        <button class="tbtn play" id="btn-play">▶</button>
+        <button class="tbtn big" id="btn-next">⏭</button>
+        <button class="tbtn" id="btn-repeat" title="تكرار">🔁</button>
+      </div>
+
+      <div class="volume">
+        <span class="vol-icon" id="btn-mute">🔊</span>
+        <input type="range" id="volume" min="0" max="100" value="60" />
+        <span class="vol-value" id="volume-value">60%</span>
+      </div>
+
+      <div class="prayer-strip" id="prayer-strip"></div>
+    </section>
+
+    <!-- ----------------------------- التالي ----------------------------- -->
+    <section class="screen view" id="view-queue" hidden>
+      <header class="view-head">
+        <h3>قائمة التشغيل التالية</h3>
+        <button class="link danger" id="btn-clear-queue">تفريغ</button>
+      </header>
+      <div class="section-label">مضاف يدويًا</div>
+      <ul class="track-list" id="queue-list"></ul>
+      <div class="section-label">بعدها من <span id="queue-source">القائمة</span></div>
+      <ul class="track-list muted" id="upnext-list"></ul>
+    </section>
+
+    <!-- ----------------------------- المكتبة ---------------------------- -->
+    <section class="screen view" id="view-library" hidden>
+      <header class="view-head">
+        <h3>المكتبة <span class="count" id="library-count"></span></h3>
+        <button class="link" id="btn-upload">رفع أغانٍ</button>
+      </header>
+      <div class="search-row">
+        <input type="search" id="search" placeholder="ابحث عن أغنية أو فنان…" />
+        <select id="sort">
+          <option value="title">الاسم</option>
+          <option value="artist">الفنان</option>
+          <option value="newest">الأحدث إضافة</option>
+          <option value="most-played">الأكثر تشغيلًا</option>
+        </select>
+      </div>
+      <input type="file" id="file-input" accept="audio/*,.mp3,.m4a,.flac,.wav,.ogg" multiple hidden />
+      <div class="upload-progress" id="upload-progress" hidden></div>
+      <ul class="track-list" id="library-list"></ul>
+      <button class="more" id="btn-more" hidden>عرض المزيد</button>
+    </section>
+
+    <!-- ----------------------------- القوائم ---------------------------- -->
+    <section class="screen view" id="view-playlists" hidden>
+      <header class="view-head">
+        <h3>القوائم</h3>
+        <button class="link" id="btn-new-playlist">قائمة جديدة</button>
+      </header>
+      <ul class="playlist-list" id="playlist-list"></ul>
+
+      <div class="detail" id="playlist-detail" hidden>
+        <header class="view-head">
+          <button class="link" id="btn-back-playlists">‹ رجوع</button>
+          <h3 id="playlist-name"></h3>
+          <button class="link danger" id="btn-delete-playlist">حذف</button>
+        </header>
+        <button class="wide-btn" id="btn-play-playlist">تشغيل هذه القائمة</button>
+        <ul class="track-list" id="playlist-tracks"></ul>
+      </div>
+    </section>
+
+    <!-- ---------------------------- الإعدادات --------------------------- -->
+    <section class="screen view" id="view-settings" hidden>
+      <header class="view-head"><h3>الإعدادات</h3></header>
+      <div id="settings-body"></div>
+    </section>
+
+    <!-- ------------------------------ التبويبات ------------------------- -->
+    <nav class="tabs" id="tabs">
+      <button data-view="now" class="active"><span>▶</span>الآن</button>
+      <button data-view="queue"><span>≡</span>التالي</button>
+      <button data-view="library"><span>♫</span>المكتبة</button>
+      <button data-view="playlists"><span>☰</span>القوائم</button>
+      <button data-view="settings" class="admin-only"><span>⚙</span>الإعدادات</button>
+    </nav>
+  </div>
+
+  <div class="toast" id="toast" hidden></div>
+
+  <!-- ورقة الإجراءات لأغنية -->
+  <div class="sheet-backdrop" id="sheet-backdrop" hidden>
+    <div class="sheet" id="sheet">
+      <div class="sheet-title" id="sheet-title"></div>
+      <button data-act="play-now">تشغيل الآن</button>
+      <button data-act="play-next">تشغيلها بعد الحالية</button>
+      <button data-act="enqueue">إضافة لآخر القائمة</button>
+      <button data-act="add-playlist">إضافة إلى قائمة…</button>
+      <button data-act="delete" class="danger admin-only">حذف من الجهاز</button>
+      <button data-act="cancel" class="cancel">إلغاء</button>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

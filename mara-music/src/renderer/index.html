@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mara Music — شاشة المشغّل</title>
+  <link rel="stylesheet" href="screen.css" />
+</head>
+<body>
+  <div class="stage">
+    <header class="topbar">
+      <div class="brand">
+        <span class="dot" id="live-dot"></span>
+        <span>Mara Music</span>
+      </div>
+      <div class="clock" id="clock">--:--</div>
+    </header>
+
+    <div class="banner" id="banner" hidden>
+      <span id="banner-text"></span>
+    </div>
+
+    <main class="now">
+      <div class="art">
+        <img id="cover" alt="" />
+        <div class="art-fallback" id="cover-fallback">♪</div>
+      </div>
+      <div class="meta">
+        <div class="label" id="source-name">كل الأغاني</div>
+        <h1 id="title">لا يوجد تشغيل</h1>
+        <h2 id="artist"></h2>
+
+        <div class="progress">
+          <div class="bar"><div class="fill" id="progress-fill"></div></div>
+          <div class="times">
+            <span id="time-position">0:00</span>
+            <span id="time-duration">0:00</span>
+          </div>
+        </div>
+
+        <div class="controls" id="controls" hidden>
+          <button id="btn-toggle" class="btn primary">إيقاف مؤقت</button>
+          <button id="btn-next" class="btn">التالي ⏭</button>
+        </div>
+
+        <div class="upnext">
+          <div class="label">التالي</div>
+          <ul id="upnext-list"><li class="empty">—</li></ul>
+        </div>
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="connect">
+        <div class="connect-text">
+          <div class="label">للتحكم من الجوال، افتح</div>
+          <div class="url" id="remote-url">—</div>
+          <div class="pin">رمز الموظف: <b id="staff-pin">----</b></div>
+        </div>
+        <img class="qr" id="qr" alt="" hidden />
+      </div>
+      <div class="prayer" id="prayer-box">
+        <div class="label">الصلاة القادمة</div>
+        <div class="prayer-name" id="prayer-next">—</div>
+      </div>
+    </footer>
+  </div>
+
+  <script src="engine.js"></script>
+  <script src="screen.js"></script>
+</body>
+</html>
