@@ -25,6 +25,7 @@ const app = {
   prayer: null,
   settings: null,
   playlists: [],
+  streams: [],
   ws: null,
   wsRetry: 0,
   view: 'now',
@@ -141,7 +142,7 @@ async function start() {
   document.body.classList.toggle('is-admin', app.role === 'admin');
 
   connectSocket();
-  await Promise.all([refreshState(), loadPlaylists()]);
+  await Promise.all([refreshState(), loadPlaylists(), loadStreams()]);
   loadLibrary(true);
   switchView(app.view);
 }
@@ -175,6 +176,7 @@ function connectSocket() {
     else if (msg.type === 'prayer') applyPrayer(msg.data);
     else if (msg.type === 'library') loadLibrary(true);
     else if (msg.type === 'playlists') loadPlaylists();
+    else if (msg.type === 'streams') loadStreams();
     else if (msg.type === 'revoked') logout(true);
   };
   ws.onclose = (e) => {
@@ -205,6 +207,11 @@ function applyState(state) {
   if (signature !== app.queueSignature) {
     app.queueSignature = signature;
     renderQueue();
+  }
+  const liveId = state.stream ? state.stream.id : null;
+  if (liveId !== app.liveStreamId) {
+    app.liveStreamId = liveId;
+    renderStreams();
   }
 }
 
@@ -298,6 +305,9 @@ function renderNow() {
   $('btn-repeat').classList.toggle('on', s.repeat !== 'off');
   $('btn-repeat').textContent = s.repeat === 'one' ? '🔂' : '🔁';
 
+  const isLive = !!(track && track.live);
+  $('seek-block').hidden = isLive;
+  if (isLive) $('now-artist').textContent = '● بثّ مباشر';
   paintProgress();
 
   const volPct = Math.round((s.volume || 0) * 100);
@@ -494,12 +504,81 @@ function renderPlaylists() {
   }
 }
 
+// ------------------------------------------------------------ البث المباشر
+
+async function loadStreams() {
+  try {
+    const data = await api('/api/streams');
+    app.streams = data.items || [];
+    renderStreams();
+  } catch (_) { /* تجاهل */ }
+}
+
+function renderStreams() {
+  const list = $('stream-list');
+  list.innerHTML = '';
+  const fragment = document.createDocumentFragment();
+  if (!app.streams.length) {
+    fragment.appendChild(el('li', 'empty', 'لا توجد محطات بعد'));
+  }
+  const liveId = app.state && app.state.stream ? app.state.stream.id : null;
+  for (const stream of app.streams) {
+    const li = el('li', `playlist ${stream.id === liveId ? 'live' : ''}`);
+    const info = el('div', 'pl-info');
+    info.appendChild(el('div', 'pl-name', stream.name));
+    info.appendChild(el('div', 'pl-count', stream.id === liveId ? '● يعمل الآن' : 'بثّ مباشر'));
+    li.appendChild(info);
+
+    const actions = el('div', 'row-actions');
+    const play = el('button', 'mini primary', '▶');
+    play.onclick = (e) => {
+      e.stopPropagation();
+      if (app.role !== 'admin') return toast('للمدير فقط');
+      cmd('play-stream', { streamId: stream.id })
+        .then(() => {
+          toast(`تشغيل: ${stream.name}`);
+          switchView('now');
+        })
+        .catch((err) => toast(err.message));
+    };
+    actions.appendChild(play);
+    if (app.role === 'admin') {
+      const rm = el('button', 'mini danger', '✕');
+      rm.onclick = async (e) => {
+        e.stopPropagation();
+        if (!confirm(`حذف محطة "${stream.name}"؟`)) return;
+        await api(`/api/streams/${stream.id}`, { method: 'DELETE' });
+        loadStreams();
+      };
+      actions.appendChild(rm);
+    }
+    li.appendChild(actions);
+    fragment.appendChild(li);
+  }
+  list.appendChild(fragment);
+}
+
+async function addStream() {
+  const name = prompt('اسم المحطة (مثلاً: إذاعة هادئة):');
+  if (!name) return;
+  const url = prompt('رابط البث (يبدأ بـ http أو https):');
+  if (!url) return;
+  try {
+    await api('/api/streams', { method: 'POST', body: { name, url } });
+    toast('أُضيفت المحطة');
+    loadStreams();
+  } catch (err) {
+    toast(err.message);
+  }
+}
+
 async function openPlaylist(id) {
   try {
     const pl = await api(`/api/playlists/${id}`);
     app.currentPlaylist = pl;
     $('playlist-detail').hidden = false;
     $('playlist-list').hidden = true;
+    $('streams-block').hidden = true;
     $('playlist-name').textContent = pl.name;
     $('btn-delete-playlist').hidden = pl.builtin || app.role !== 'admin';
 
@@ -534,6 +613,7 @@ async function openPlaylist(id) {
 function closePlaylist() {
   $('playlist-detail').hidden = true;
   $('playlist-list').hidden = false;
+  $('streams-block').hidden = false;
   app.currentPlaylist = null;
 }
 
@@ -863,6 +943,7 @@ function schedulesCard(schedules) {
   const type = el('select');
   for (const [value, label] of Object.entries({
     playlist: 'تشغيل قائمة',
+    stream: 'تشغيل بثّ مباشر',
     volume: 'ضبط مستوى الصوت',
     pause: 'إيقاف الموسيقى',
     resume: 'تشغيل الموسيقى'
@@ -878,6 +959,14 @@ function schedulesCard(schedules) {
     o.value = pl.id;
     valueSelect.appendChild(o);
   }
+  const streamSelect = el('select');
+  for (const st of app.streams) {
+    const o = el('option', null, st.name);
+    o.value = st.id;
+    streamSelect.appendChild(o);
+  }
+  streamSelect.hidden = true;
+
   const valueNumber = el('input');
   valueNumber.type = 'number';
   valueNumber.min = 0;
@@ -888,6 +977,7 @@ function schedulesCard(schedules) {
 
   type.onchange = () => {
     valueSelect.hidden = type.value !== 'playlist';
+    streamSelect.hidden = type.value !== 'stream';
     valueNumber.hidden = type.value !== 'volume';
   };
 
@@ -896,6 +986,7 @@ function schedulesCard(schedules) {
     const days = dayChecks.filter((c) => c.checked).map((c) => Number(c.value));
     const action = { type: type.value };
     if (type.value === 'playlist') action.value = valueSelect.value;
+    if (type.value === 'stream') action.value = streamSelect.value;
     if (type.value === 'volume') action.value = Number(valueNumber.value) / 100;
     try {
       await api('/api/schedules', {
@@ -908,7 +999,7 @@ function schedulesCard(schedules) {
     }
   };
 
-  form.append(name, time, daysBox, type, valueSelect, valueNumber, add);
+  form.append(name, time, daysBox, type, valueSelect, streamSelect, valueNumber, add);
   box.appendChild(form);
   return box;
 }
@@ -918,6 +1009,10 @@ function describeAction(action) {
     case 'playlist': {
       const pl = app.playlists.find((p) => p.id === action.value);
       return `تشغيل قائمة "${pl ? pl.name : action.value}"`;
+    }
+    case 'stream': {
+      const st = app.streams.find((x) => x.id === action.value);
+      return `تشغيل بث "${st ? st.name : action.value}"`;
     }
     case 'volume':
       return `ضبط الصوت على ${Math.round(action.value * 100)}%`;
@@ -974,6 +1069,7 @@ function switchView(view) {
   if (view === 'playlists') {
     closePlaylist();
     loadPlaylists();
+    loadStreams();
   }
 }
 
@@ -1097,6 +1193,10 @@ function wireEvents() {
     if (!name) return;
     await api('/api/playlists', { method: 'POST', body: { name } });
     loadPlaylists();
+  };
+  $('btn-add-stream').onclick = () => {
+    if (app.role !== 'admin') return toast('للمدير فقط');
+    addStream();
   };
   $('btn-back-playlists').onclick = closePlaylist;
   $('btn-delete-playlist').onclick = async () => {

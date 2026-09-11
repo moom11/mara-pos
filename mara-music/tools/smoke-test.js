@@ -351,6 +351,59 @@ async function main() {
   check('رفض الاتصال اللحظي بدون رمز صحيح', closeCode === 4001, `الرمز: ${closeCode}`);
   player.setVolume(0.6);
 
+  // ==================================================== 6د) البث المباشر
+
+  section('البث المباشر');
+  const badUrl = await call('/api/streams', { method: 'POST', body: { name: 'خطر', url: 'file:///C:/Windows/System32' } });
+  check('رفض الروابط غير http/https', badUrl.status === 400);
+  const noName = await call('/api/streams', { method: 'POST', body: { name: '', url: 'http://example.com/s' } });
+  check('رفض محطة بلا اسم', noName.status === 400);
+
+  const newStream = await call('/api/streams', { method: 'POST', body: { name: 'إذاعة الصباح', url: 'http://example.com/stream.mp3' } });
+  check('إضافة محطة بث', newStream.status === 200 && !!newStream.data.id);
+  const streamId = newStream.data.id;
+
+  const staffStream = await call('/api/streams', { method: 'POST', body: { name: 'x', url: 'http://a.b/c' }, tokenOverride: staffToken });
+  check('منع الموظف من إضافة محطات', staffStream.status === 403);
+
+  const playStream = await call('/api/player/play-stream', { method: 'POST', body: { streamId } });
+  check('تشغيل البث المباشر', playStream.status === 200 && player.state.stream && player.state.stream.id === streamId);
+  check('رابط البث يُرسل للمشغّل كما هو', commands.filter((c) => c.type === 'load').pop().url === 'http://example.com/stream.mp3');
+  check('لا تحميل مسبق ولا مزج أثناء البث', commands.filter((c) => c.type === 'preload').pop().id === null);
+  const liveState = player.publicState();
+  check('الحالة تعرض البث كأنه أغنية', liveState.track.live === true && liveState.track.title === 'إذاعة الصباح');
+  check('مدة البث صفر (غير محدودة)', liveState.duration === 0);
+
+  // الصلاة أثناء البث: إيقاف ثم إعادة اتصال — لا استئناف لبثّ قديم
+  player.setAutoPause({ reason: 'prayer', key: 'asr', label: 'وقت صلاة العصر', mode: 'pause', until: '16:20' });
+  check('البث يتوقف وقت الصلاة', player.state.status === 'paused');
+  const loadsBeforeResume = commands.filter((c) => c.type === 'load').length;
+  player.clearAutoPause({ resume: true });
+  check('بعد الصلاة يُعاد الاتصال بالبث لا استئناف المخزَّن', commands.filter((c) => c.type === 'load').length === loadsBeforeResume + 1);
+
+  // انقطاع الشبكة: إعادة محاولة، ثم عودة للمكتبة المحلية
+  for (let i = 0; i < 6; i += 1) {
+    player.onRendererEvent({ type: 'error', id: player.state.currentId, message: 'انقطاع' });
+  }
+  check('العودة للمكتبة المحلية بعد فشل البث المتكرر', !player.state.stream && library.tracks.has(player.state.currentId));
+
+  await call('/api/player/play-stream', { method: 'POST', body: { streamId } });
+  await call('/api/player/next', { method: 'POST' });
+  check('"التالي" يخرج من البث إلى المكتبة', !player.state.stream && library.tracks.has(player.state.currentId));
+
+  // استعادة البث بعد إعادة تشغيل الجهاز
+  await call('/api/player/play-stream', { method: 'POST', body: { streamId } });
+  player.saveState();
+  player.flush();
+  const afterReboot = new Player({ library, playlists, settings });
+  afterReboot.restore();
+  check('استعادة البث بعد إعادة تشغيل الجهاز', !!afterReboot.state.stream && afterReboot.state.stream.id === streamId);
+  player.leaveStream();
+  player.playNow(tracks[0].id);
+
+  const delStream = await call(`/api/streams/${streamId}`, { method: 'DELETE' });
+  check('حذف محطة البث', delStream.status === 200 && (settings.streams || []).length === 0);
+
   // ==================================================== 7) أوقات الصلاة
 
   section('أوقات الصلاة');

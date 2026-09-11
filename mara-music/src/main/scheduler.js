@@ -191,6 +191,16 @@ class Scheduler {
         if (typeof action.volume === 'number') this.player.setVolume(action.volume, { fadeMs: 4000 });
         break;
       }
+      case 'stream': {
+        const stream = (this.getSettings().streams || []).find((s) => s.id === action.value);
+        if (!stream) {
+          console.warn(`[scheduler] رابط البث غير موجود: ${action.value}`);
+          return;
+        }
+        this.player.playStream(stream);
+        if (typeof action.volume === 'number') this.player.setVolume(action.volume, { fadeMs: 4000 });
+        break;
+      }
       case 'volume':
         this.player.setVolume(Number(action.value), { fadeMs: 4000 });
         break;
@@ -221,7 +231,7 @@ class Scheduler {
       days,
       time: /^\d{1,2}:\d{2}$/.test(String(input.time)) ? String(input.time) : '08:00',
       action: {
-        type: ['playlist', 'volume', 'pause', 'resume', 'play', 'stop'].includes(input.action?.type) ? input.action.type : 'volume',
+        type: ['playlist', 'stream', 'volume', 'pause', 'resume', 'play', 'stop'].includes(input.action?.type) ? input.action.type : 'volume',
         value: input.action?.value ?? 0.5,
         volume: typeof input.action?.volume === 'number' ? input.action.volume : undefined
       }

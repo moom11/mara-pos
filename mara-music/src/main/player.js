@@ -33,8 +33,10 @@ class Player extends EventEmitter {
       shuffle: !!settings.shuffle,
       repeat: settings.repeat || 'all',
       autoPause: null,
+      stream: null, // بث مباشر قيد التشغيل: {id, name, url}
       lastError: null
     };
+    this.streamRetries = 0;
 
     this.order = [];
     this.orderPos = -1;
@@ -65,6 +67,17 @@ class Player extends EventEmitter {
     this.order = savedOrder.length ? savedOrder : this.buildOrder();
     this.orderPos = typeof saved.orderPos === 'number' ? saved.orderPos : -1;
 
+    // بثّ كان يعمل قبل إعادة التشغيل — نستأنفه كما هو
+    if (saved.stream && saved.stream.url && saved.currentId && String(saved.currentId).startsWith('stream:')) {
+      this.state.stream = saved.stream;
+      this.state.currentId = saved.currentId;
+      this.state.duration = 0;
+      this.state.position = 0;
+      this.resumeOnBoot = saved.status === 'playing';
+      console.log(`[player] استُعيد البث المباشر: ${saved.stream.name}`);
+      return;
+    }
+
     if (saved.currentId && this.library.tracks.has(saved.currentId)) {
       this.state.currentId = saved.currentId;
       this.state.position = Math.max(0, Number(saved.position) || 0);
@@ -85,8 +98,8 @@ class Player extends EventEmitter {
     if (this.state.currentId) {
       this.command('load', {
         id: this.state.currentId,
-        url: this.urlFor(this.state.currentId),
-        startAt: this.state.position,
+        url: this.currentUrl(),
+        startAt: this.state.stream ? 0 : this.state.position,
         autoplay: !!this.resumeOnBoot
       });
       if (this.resumeOnBoot) this.state.status = 'playing';
@@ -107,6 +120,70 @@ class Player extends EventEmitter {
 
   urlFor(id) {
     return `${this.streamBase}${id}${this.streamSuffix || ''}`;
+  }
+
+  /** رابط ما يُشغَّل الآن: ملف محلي أو بث مباشر. */
+  currentUrl() {
+    if (this.state.stream) return this.state.stream.url;
+    return this.urlFor(this.state.currentId);
+  }
+
+  // ------------------------------------------------------------ البث المباشر
+
+  /**
+   * تشغيل بث مباشر (إذاعة أو خدمة بث). لا مساحة تخزين ولا مزج،
+   * ومع انقطاع الشبكة يُعاد الاتصال تلقائيًا ثم تُستأنف المكتبة المحلية.
+   */
+  playStream(stream) {
+    if (!stream || !stream.url) return false;
+    this.state.stream = { id: stream.id, name: stream.name, url: stream.url };
+    this.state.currentId = `stream:${stream.id}`;
+    this.state.position = 0;
+    this.state.duration = 0;
+    this.state.status = 'playing';
+    this.state.lastError = null;
+    this.streamRetries = 0;
+    this.pendingNext = null;
+    this.clearAutoPause({ silent: true });
+    this.command('load', { id: this.state.currentId, url: stream.url, startAt: 0, autoplay: true });
+    this.command('preload', { id: null, url: null, crossfadeSec: 0 }); // لا مزج مع البث
+    this.publish();
+    return true;
+  }
+
+  /** يترك البث ويعود للمكتبة المحلية. */
+  leaveStream() {
+    if (!this.state.stream) return false;
+    this.state.stream = null;
+    this.streamRetries = 0;
+    return true;
+  }
+
+  handleStreamFailure(message) {
+    if (!this.state.stream) return;
+    this.streamRetries += 1;
+    if (this.streamRetries > 5) {
+      console.warn(`[player] تعذّر الاتصال بالبث "${this.state.stream.name}" — العودة للمكتبة المحلية`);
+      this.state.lastError = { message: `انقطع البث "${this.state.stream.name}" — رجعنا للمكتبة`, at: Date.now() };
+      this.leaveStream();
+      this.next({ manual: false });
+      return;
+    }
+    const delay = Math.min(30000, 2000 * this.streamRetries);
+    console.warn(`[player] انقطع البث (${message}) — إعادة المحاولة بعد ${delay / 1000}s`);
+    setTimeout(() => {
+      if (!this.state.stream) return;
+      this.command('load', { id: this.state.currentId, url: this.state.stream.url, startAt: 0, autoplay: true });
+    }, delay);
+  }
+
+  /** استئناف التشغيل: البث يُعاد تحميله لأن ما خُزّن منه صار قديمًا. */
+  resumePlayback(fadeMs = 400) {
+    if (this.state.stream) {
+      this.command('load', { id: this.state.currentId, url: this.state.stream.url, startAt: 0, autoplay: true });
+    } else {
+      this.command('play', { fadeMs });
+    }
   }
 
   // ------------------------------------------------------------ ترتيب التشغيل
@@ -188,6 +265,7 @@ class Player extends EventEmitter {
   startTrack(id, { addToHistory = true } = {}) {
     const track = this.library.get(id);
     if (!track) return false;
+    this.leaveStream();
     if (addToHistory && this.state.currentId && this.state.currentId !== id) {
       this.history.push(this.state.currentId);
       if (this.history.length > 100) this.history.shift();
@@ -212,8 +290,8 @@ class Player extends EventEmitter {
       return this.playAt(0);
     }
     this.state.status = 'playing';
-    this.command('play', { fadeMs: 400 });
-    this.schedulePreload();
+    this.resumePlayback(400);
+    if (!this.state.stream) this.schedulePreload();
     this.publish();
     return true;
   }
@@ -243,7 +321,12 @@ class Player extends EventEmitter {
       this.pendingNext = null;
       return this.startTrack(id);
     }
-    // 2) تكرار الأغنية نفسها (عند الانتهاء الطبيعي فقط)
+    // 2) لو كان يعمل بثّ مباشر، "التالي" يعني العودة للمكتبة المحلية
+    if (this.state.stream) {
+      this.leaveStream();
+      return this.playAt(this.orderPos >= 0 ? this.orderPos : 0);
+    }
+    // 3) تكرار الأغنية نفسها (عند الانتهاء الطبيعي فقط)
     if (!manual && this.state.repeat === 'one' && this.state.currentId) {
       return this.startTrack(this.state.currentId, { addToHistory: false });
     }
@@ -266,6 +349,10 @@ class Player extends EventEmitter {
   }
 
   previous() {
+    if (this.state.stream) {
+      this.leaveStream();
+      return this.playAt(this.orderPos >= 0 ? this.orderPos : 0);
+    }
     if (this.state.position > 4) {
       this.seek(0);
       return true;
@@ -403,7 +490,7 @@ class Player extends EventEmitter {
     this.command('volume', { value: this.effectiveVolume(), fadeMs: 3000 });
     if (resume && was.mode === 'pause' && was.wasPlaying && this.state.currentId) {
       this.state.status = 'playing';
-      this.command('play', { fadeMs: 3000 });
+      this.resumePlayback(3000);
     }
     if (!silent) this.publish();
   }
@@ -430,6 +517,11 @@ class Player extends EventEmitter {
         break;
       }
       case 'ended': {
+        // البث المباشر لا "ينتهي" — انتهاؤه يعني انقطاع الشبكة
+        if (this.state.stream) {
+          this.handleStreamFailure('انتهى البث');
+          break;
+        }
         if (this.pendingNext && this.pendingNext.id) {
           this.commitPending();
         } else {
@@ -439,6 +531,11 @@ class Player extends EventEmitter {
       }
       case 'error': {
         console.error(`[player] خطأ في تشغيل ${event.id}: ${event.message}`);
+        if (this.state.stream) {
+          this.handleStreamFailure(event.message);
+          this.publish();
+          break;
+        }
         this.state.lastError = { id: event.id, message: event.message, at: Date.now() };
         this.publish();
         // نتجاوز الملف التالف حتى لا تتوقف الموسيقى
@@ -477,6 +574,12 @@ class Player extends EventEmitter {
 
   /** يخبر المشغّل بالأغنية التالية ليجهّزها ويمزجها بسلاسة. */
   schedulePreload() {
+    if (this.state.stream) {
+      // لا تحميل مسبق ولا مزج أثناء البث المباشر
+      this.pendingNext = null;
+      this.command('preload', { id: null, url: null, crossfadeSec: 0 });
+      return;
+    }
     const next = this.peekNext();
     this.pendingNext = next;
     const crossfade = Number(this.settings.crossfadeSec) || 0;
@@ -536,6 +639,7 @@ class Player extends EventEmitter {
       repeat: this.state.repeat,
       queue: this.state.queue,
       sourceId: this.state.sourceId,
+      stream: this.state.stream,
       order: this.order,
       orderPos: this.orderPos,
       savedAt: Date.now()
@@ -551,9 +655,21 @@ class Player extends EventEmitter {
 
   publicState() {
     const track = this.state.currentId ? this.library.get(this.state.currentId) : null;
+    const live = this.state.stream
+      ? {
+        id: this.state.currentId,
+        title: this.state.stream.name,
+        artist: 'بثّ مباشر',
+        album: '',
+        duration: 0,
+        cover: null,
+        live: true
+      }
+      : null;
     return {
       status: this.state.status,
-      track: track ? publicTrack(track) : null,
+      track: live || (track ? publicTrack(track) : null),
+      stream: this.state.stream,
       position: Math.round(this.state.position * 10) / 10,
       duration: this.state.duration || (track ? track.duration : 0),
       volume: this.state.volume,

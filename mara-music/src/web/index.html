@@ -54,7 +54,7 @@
         <p id="now-artist"></p>
       </div>
 
-      <div class="seek">
+      <div class="seek" id="seek-block">
         <input type="range" id="seek" min="0" max="1000" value="0" />
         <div class="times">
           <span id="now-position">0:00</span>
@@ -119,6 +119,18 @@
         <button class="link" id="btn-new-playlist">قائمة جديدة</button>
       </header>
       <ul class="playlist-list" id="playlist-list"></ul>
+
+      <div id="streams-block">
+        <header class="view-head streams-head">
+          <h3>البث المباشر</h3>
+          <button class="link admin-only" id="btn-add-stream">إضافة محطة</button>
+        </header>
+        <ul class="playlist-list" id="stream-list"></ul>
+        <p class="hint">
+          روابط إذاعات أو خدمات بث تملك حق تشغيلها في المحل. لا تستهلك مساحة تخزين،
+          لكنها تحتاج إنترنت — وعند انقطاعه يعود المشغّل تلقائيًا لمكتبتك المحلية.
+        </p>
+      </div>
 
       <div class="detail" id="playlist-detail" hidden>
         <header class="view-head">

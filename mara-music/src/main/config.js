@@ -45,6 +45,8 @@ const DEFAULT_SETTINGS = {
     durations: { fajr: 25, dhuhr: 25, asr: 20, maghrib: 15, isha: 20, jumuah: 60 },
     enabledPrayers: { fajr: false, dhuhr: true, asr: true, maghrib: true, isha: true }
   },
+  // روابط البث المباشر (إذاعات أو خدمات بث يملك المستخدم حق تشغيلها)
+  streams: [],
   // الجدولة الزمنية
   schedules: [],
   // شاشة الجهاز

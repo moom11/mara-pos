@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const http = require('http');
 const os = require('os');
 const express = require('express');
@@ -152,6 +153,12 @@ function createServer(ctx) {
       case 'play-now':
         if (!player.playNow(String(req.body?.trackId))) return res.status(404).json({ error: 'الأغنية غير موجودة' });
         break;
+      case 'play-stream': {
+        const stream = (settings().streams || []).find((s) => s.id === String(req.body?.streamId));
+        if (!stream) return res.status(404).json({ error: 'رابط البث غير موجود' });
+        player.playStream(stream);
+        break;
+      }
       case 'play-next':
         if (!player.enqueueNext(String(req.body?.trackId))) return res.status(404).json({ error: 'الأغنية غير موجودة' });
         break;
@@ -369,6 +376,42 @@ function createServer(ctx) {
       uploaded: files.length,
       added: added.map((t) => ({ id: t.id, title: t.title, artist: t.artist, duration: t.duration }))
     });
+  });
+
+  // ------------------------------------------------------- البث المباشر
+
+  app.get('/api/streams', requireAuth, (_req, res) => res.json({ items: settings().streams || [] }));
+
+  app.post('/api/streams', requireAdmin, (req, res) => {
+    const name = String(req.body?.name || '').trim().slice(0, 60);
+    const url = String(req.body?.url || '').trim();
+    if (!name) return res.status(400).json({ error: 'اكتب اسمًا للمحطة' });
+    let parsed;
+    try {
+      parsed = new URL(url);
+    } catch (err) {
+      return res.status(400).json({ error: 'الرابط غير صالح' });
+    }
+    // روابط الويب فقط — لا مسارات ملفات محلية ولا بروتوكولات أخرى
+    if (!['http:', 'https:'].includes(parsed.protocol)) {
+      return res.status(400).json({ error: 'يجب أن يبدأ الرابط بـ http أو https' });
+    }
+    const s = settings();
+    const stream = { id: crypto.randomBytes(5).toString('hex'), name, url: parsed.toString(), addedAt: Date.now() };
+    s.streams = [...(s.streams || []), stream];
+    saveSettings();
+    broadcast({ type: 'streams' });
+    res.json(stream);
+  });
+
+  app.delete('/api/streams/:id', requireAdmin, (req, res) => {
+    const s = settings();
+    const before = (s.streams || []).length;
+    s.streams = (s.streams || []).filter((item) => item.id !== req.params.id);
+    if (s.streams.length === before) return res.status(404).json({ error: 'رابط البث غير موجود' });
+    saveSettings();
+    broadcast({ type: 'streams' });
+    res.json({ ok: true });
   });
 
   // ------------------------------------------------------------ الإعدادات
