@@ -171,6 +171,7 @@ function connectSocket() {
     let msg;
     try { msg = JSON.parse(event.data); } catch (_) { return; }
     if (msg.type === 'state') applyState(msg.data);
+    else if (msg.type === 'tick') applyTick(msg.data);
     else if (msg.type === 'prayer') applyPrayer(msg.data);
     else if (msg.type === 'library') loadLibrary(true);
     else if (msg.type === 'playlists') loadPlaylists();
@@ -195,7 +196,43 @@ function applyState(state) {
   app.state = state;
   if (!app.dragging) app.localPosition = state.position || 0;
   renderNow();
-  renderQueue();
+  // لا نعيد بناء القوائم إلا إذا تغيّرت فعلًا — أهم سبب لثقل الواجهة على الجوال
+  const signature = JSON.stringify([
+    state.queue.map((t) => t.id),
+    state.upNext.map((t) => t.id),
+    state.source && state.source.id
+  ]);
+  if (signature !== app.queueSignature) {
+    app.queueSignature = signature;
+    renderQueue();
+  }
+}
+
+/** تحديث خفيف كل ثانية: الموضع فقط، بلا إعادة بناء لأي قائمة. */
+function applyTick(tick) {
+  if (!tick) return;
+  if (!app.state) return refreshState();
+  const currentId = app.state.track ? app.state.track.id : null;
+  if (tick.trackId !== currentId) return refreshState(); // تغيّرت الأغنية — نطلب الحالة الكاملة
+
+  const statusChanged = app.state.status !== tick.status;
+  app.state.status = tick.status;
+  app.state.duration = tick.duration || app.state.duration;
+  app.state.position = tick.position;
+  if (!app.dragging) app.localPosition = tick.position;
+
+  if (statusChanged) {
+    $('btn-play').textContent = tick.status === 'playing' ? '❚❚' : '▶';
+  }
+  paintProgress();
+}
+
+function paintProgress() {
+  if (app.dragging) return;
+  const duration = app.state ? app.state.duration || 0 : 0;
+  $('seek').value = duration ? Math.round((app.localPosition / duration) * 1000) : 0;
+  $('now-position').textContent = fmt(app.localPosition);
+  $('now-duration').textContent = fmt(duration);
 }
 
 function applyPrayer(prayer) {
@@ -227,12 +264,7 @@ function renderNow() {
   $('btn-repeat').classList.toggle('on', s.repeat !== 'off');
   $('btn-repeat').textContent = s.repeat === 'one' ? '🔂' : '🔁';
 
-  if (!app.dragging) {
-    const duration = s.duration || 0;
-    $('seek').value = duration ? Math.round((app.localPosition / duration) * 1000) : 0;
-    $('now-position').textContent = fmt(app.localPosition);
-    $('now-duration').textContent = fmt(duration);
-  }
+  paintProgress();
 
   const volPct = Math.round((s.volume || 0) * 100);
   if (document.activeElement !== $('volume')) $('volume').value = volPct;
@@ -308,9 +340,18 @@ function renderQueue() {
 
 function trackInfo(track) {
   const wrap = el('div', 'track-info');
-  const img = el('div', 'thumb');
-  if (track.cover) img.style.backgroundImage = `url(${track.cover})`;
-  else img.textContent = '♪';
+  let img;
+  if (track.cover) {
+    // صورة كسولة: لا تُحمَّل إلا عند ظهورها على الشاشة — أسرع بكثير في القوائم الطويلة
+    img = el('img', 'thumb');
+    img.loading = 'lazy';
+    img.decoding = 'async';
+    img.alt = '';
+    img.src = track.cover;
+  } else {
+    img = el('div', 'thumb');
+    img.textContent = '♪';
+  }
   const text = el('div', 'track-text');
   text.appendChild(el('div', 'track-title', track.title || 'بدون عنوان'));
   text.appendChild(el('div', 'track-sub', [track.artist, track.duration ? fmt(track.duration) : null].filter(Boolean).join(' • ')));
@@ -1015,13 +1056,12 @@ function wireEvents() {
     btn.onclick = () => handleSheetAction(btn.dataset.act);
   }
 
-  // تقدّم محلي سلس
+  // تقدّم محلي سلس — يعمل فقط عند عرض شاشة "الآن"
   setInterval(() => {
+    if (app.view !== 'now') return;
     if (!app.state || app.state.status !== 'playing' || app.dragging) return;
     app.localPosition = Math.min(app.state.duration || 0, app.localPosition + 0.5);
-    const duration = app.state.duration || 0;
-    $('seek').value = duration ? Math.round((app.localPosition / duration) * 1000) : 0;
-    $('now-position').textContent = fmt(app.localPosition);
+    paintProgress();
   }, 500);
 
   document.addEventListener('visibilitychange', () => {

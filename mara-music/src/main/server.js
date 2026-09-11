@@ -541,6 +541,7 @@ function createServer(ctx) {
   }
 
   player.on('state', (state) => broadcast({ type: 'state', data: state }));
+  player.on('tick', (tick) => broadcast({ type: 'tick', data: tick }));
   library.on('changed', () => broadcast({ type: 'library' }));
   player.on('auto-pause', () => broadcast({ type: 'prayer', data: scheduler.prayerSummary() }));
 

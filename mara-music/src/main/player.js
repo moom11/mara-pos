@@ -507,9 +507,23 @@ class Player extends EventEmitter {
 
   // ------------------------------------------------------------------ النشر
 
+  /**
+   * التحديث الخفيف (كل ثانية أثناء التشغيل) يرسل الموضع فقط — بضع عشرات من البايتات.
+   * الحالة الكاملة تُرسل فقط عند تغيّر حقيقي: أغنية جديدة، أو تعديل قائمة، أو صوت.
+   * بدون هذا التفريق كان الجوال يعيد بناء كل القوائم ستين مرة في الدقيقة.
+   */
   publish({ light = false } = {}) {
-    this.emit('state', this.publicState(), { light });
-    if (!light) this.saveState(true);
+    if (light) {
+      this.emit('tick', {
+        status: this.state.status,
+        position: Math.round(this.state.position * 10) / 10,
+        duration: this.state.duration,
+        trackId: this.state.currentId
+      });
+      return;
+    }
+    this.emit('state', this.publicState());
+    this.saveState(true);
   }
 
   saveState(throttled = true) {

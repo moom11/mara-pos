@@ -321,6 +321,15 @@ async function main() {
   await new Promise((r) => setTimeout(r, 200));
   check('بثّ التغييرات لحظيًا لكل الأجهزة', messages.filter((m) => m.type === 'state').length > countBefore);
   check('الحالة المبثوثة تحمل القيمة الجديدة', messages.filter((m) => m.type === 'state').pop().data.volume === 0.44);
+
+  // تحديث الموضع كل ثانية يجب أن يكون رسالة خفيفة، لا حالة كاملة
+  const fullStatesBefore = messages.filter((m) => m.type === 'state').length;
+  player.onRendererEvent({ type: 'status', id: player.state.currentId, status: 'playing', position: 12.5, duration: 200 });
+  await new Promise((r) => setTimeout(r, 200));
+  const tick = messages.filter((m) => m.type === 'tick').pop();
+  check('تحديث الموضع يُرسل كرسالة خفيفة', !!tick && tick.data.position === 12.5);
+  check('التحديث الخفيف لا يعيد إرسال الحالة الكاملة', messages.filter((m) => m.type === 'state').length === fullStatesBefore);
+  check('الرسالة الخفيفة لا تحمل القوائم', !!tick && tick.data.queue === undefined && tick.data.upNext === undefined);
   ws.close();
 
   const badWs = new WebSocket(`ws://127.0.0.1:${port}/ws?t=رمز-خاطئ`);
