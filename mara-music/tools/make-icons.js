@@ -110,6 +110,26 @@ function encodePNG(size, pixels) {
 
 // ------------------------------------------------------------------ التنفيذ
 
+/** ملف ICO لويندوز: ترويسة + مدخل واحد + صورة PNG مضمّنة (مدعوم منذ Vista). */
+function encodeICO(size, pngBuffer) {
+  const header = Buffer.alloc(6);
+  header.writeUInt16LE(0, 0); // محجوز
+  header.writeUInt16LE(1, 2); // النوع: أيقونة
+  header.writeUInt16LE(1, 4); // عدد الصور
+
+  const entry = Buffer.alloc(16);
+  entry[0] = size >= 256 ? 0 : size; // 0 تعني 256
+  entry[1] = size >= 256 ? 0 : size;
+  entry[2] = 0; // عدد الألوان
+  entry[3] = 0; // محجوز
+  entry.writeUInt16LE(1, 4); // عدد الطبقات
+  entry.writeUInt16LE(32, 6); // بت لكل بكسل
+  entry.writeUInt32LE(pngBuffer.length, 8);
+  entry.writeUInt32LE(header.length + entry.length, 12);
+
+  return Buffer.concat([header, entry, pngBuffer]);
+}
+
 const targets = [
   { size: 192, file: path.join(__dirname, '..', 'src', 'web', 'icons', 'icon-192.png') },
   { size: 512, file: path.join(__dirname, '..', 'src', 'web', 'icons', 'icon-512.png') },
@@ -121,3 +141,8 @@ for (const target of targets) {
   fs.writeFileSync(target.file, encodePNG(target.size, drawIcon(target.size)));
   console.log(`أُنشئت ${path.relative(process.cwd(), target.file)} (${target.size}px)`);
 }
+
+// أيقونة ويندوز لاختصارات سطح المكتب
+const icoFile = path.join(__dirname, '..', 'src', 'assets', 'icon.ico');
+fs.writeFileSync(icoFile, encodeICO(256, encodePNG(256, drawIcon(256))));
+console.log(`أُنشئت ${path.relative(process.cwd(), icoFile)} (256px, ICO)`);
