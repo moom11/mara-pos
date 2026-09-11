@@ -80,10 +80,12 @@ function saveSettings() {
 function applyAutoStart() {
   if (process.platform !== 'win32') return;
   try {
+    // في النسخة المثبّتة يكفي مسار البرنامج نفسه، أما عند التشغيل من مجلد
+    // (electron.exe مباشرة) فلا بد من تمرير مسار التطبيق وإلا فتحت نافذة فارغة.
     app.setLoginItemSettings({
       openAtLogin: settings.autoStart !== false,
       path: process.execPath,
-      args: []
+      args: app.isPackaged ? [] : [app.getAppPath()]
     });
   } catch (err) {
     console.error('[autostart] تعذّر الضبط:', err.message);
