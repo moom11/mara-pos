@@ -45,6 +45,7 @@
           "arch": ["x64"]
         }
       ],
+      "icon": "src/assets/icon.ico",
       "artifactName": "MaraMusic-Setup-${version}.${ext}"
     },
     "nsis": {
@@ -53,7 +54,10 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Mara Music"
+      "shortcutName": "Mara Music",
+      "installerIcon": "src/assets/icon.ico",
+      "uninstallerIcon": "src/assets/icon.ico",
+      "installerHeaderIcon": "src/assets/icon.ico"
     }
   }
 }

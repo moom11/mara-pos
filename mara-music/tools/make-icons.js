@@ -110,24 +110,35 @@ function encodePNG(size, pixels) {
 
 // ------------------------------------------------------------------ التنفيذ
 
-/** ملف ICO لويندوز: ترويسة + مدخل واحد + صورة PNG مضمّنة (مدعوم منذ Vista). */
-function encodeICO(size, pngBuffer) {
+/**
+ * ملف ICO لويندوز بعدة أحجام — ويندوز يختار المناسب لكل مكان
+ * (شريط المهام، سطح المكتب، نافذة التثبيت). صور PNG مضمّنة، مدعومة منذ Vista.
+ */
+function encodeICO(sizes) {
+  const images = sizes.map((size) => ({ size, png: encodePNG(size, drawIcon(size)) }));
+
   const header = Buffer.alloc(6);
   header.writeUInt16LE(0, 0); // محجوز
   header.writeUInt16LE(1, 2); // النوع: أيقونة
-  header.writeUInt16LE(1, 4); // عدد الصور
+  header.writeUInt16LE(images.length, 4);
 
-  const entry = Buffer.alloc(16);
-  entry[0] = size >= 256 ? 0 : size; // 0 تعني 256
-  entry[1] = size >= 256 ? 0 : size;
-  entry[2] = 0; // عدد الألوان
-  entry[3] = 0; // محجوز
-  entry.writeUInt16LE(1, 4); // عدد الطبقات
-  entry.writeUInt16LE(32, 6); // بت لكل بكسل
-  entry.writeUInt32LE(pngBuffer.length, 8);
-  entry.writeUInt32LE(header.length + entry.length, 12);
+  const directory = Buffer.alloc(16 * images.length);
+  let offset = header.length + directory.length;
 
-  return Buffer.concat([header, entry, pngBuffer]);
+  images.forEach((image, index) => {
+    const at = index * 16;
+    directory[at] = image.size >= 256 ? 0 : image.size; // 0 تعني 256
+    directory[at + 1] = image.size >= 256 ? 0 : image.size;
+    directory[at + 2] = 0; // عدد الألوان
+    directory[at + 3] = 0; // محجوز
+    directory.writeUInt16LE(1, at + 4); // عدد الطبقات
+    directory.writeUInt16LE(32, at + 6); // بت لكل بكسل
+    directory.writeUInt32LE(image.png.length, at + 8);
+    directory.writeUInt32LE(offset, at + 12);
+    offset += image.png.length;
+  });
+
+  return Buffer.concat([header, directory, ...images.map((i) => i.png)]);
 }
 
 const targets = [
@@ -142,7 +153,8 @@ for (const target of targets) {
   console.log(`أُنشئت ${path.relative(process.cwd(), target.file)} (${target.size}px)`);
 }
 
-// أيقونة ويندوز لاختصارات سطح المكتب
+// أيقونة ويندوز: للتطبيق المثبّت وللاختصارات ولنافذة التثبيت
+const ICO_SIZES = [16, 24, 32, 48, 64, 128, 256];
 const icoFile = path.join(__dirname, '..', 'src', 'assets', 'icon.ico');
-fs.writeFileSync(icoFile, encodeICO(256, encodePNG(256, drawIcon(256))));
-console.log(`أُنشئت ${path.relative(process.cwd(), icoFile)} (256px, ICO)`);
+fs.writeFileSync(icoFile, encodeICO(ICO_SIZES));
+console.log(`أُنشئت ${path.relative(process.cwd(), icoFile)} (${ICO_SIZES.join('، ')} بكسل)`);
