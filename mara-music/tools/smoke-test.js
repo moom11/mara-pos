@@ -151,6 +151,16 @@ async function main() {
   check('العنوان يُشتق من اسم الملف العربي', tracks.some((t) => t.title.includes('أغنية تجريبية')));
   const searchAr = library.search('تجريبيه'); // بحث بلا تشكيل وبهاء بدل التاء المربوطة
   check('البحث العربي يتجاهل الفروق الإملائية', searchAr.total === 6, `النتائج: ${searchAr.total}`);
+  check('البحث عن نص غير موجود يعيد صفرًا', library.search('زززز').total === 0);
+
+  // الفهرسة: الفرز العربي مكلف، فيجب أن يُحسب مرة واحدة ويُعاد استخدامه
+  const idsFirst = library.sortedIds('title');
+  check('الفهرس المفروز يُخزَّن ولا يُعاد حسابه', library.sortedIds('title') === idsFirst);
+  check('قائمة "كل الأغاني" تستخدم الفهرس نفسه', playlists.trackIdsOf(ALL_TRACKS_ID) === idsFirst);
+  check('البحث لا يفسد الفهرس المخزَّن', library.search('تجريبية').items.length === 6 && library.sortedIds('title') === idsFirst);
+  await library.scan({ full: false });
+  check('الفهرس يُبطَل عند تغيّر المكتبة', library.sortedIds('title') !== idsFirst);
+  check('الفهرس الجديد يحمل نفس العدد', library.sortedIds('title').length === 6);
 
   // ==================================================== 2) الدخول
 

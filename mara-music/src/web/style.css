@@ -10,9 +10,13 @@
   --danger: #ff6b6b;
   --ok: #45c07a;
   --tabs-h: 62px;
+  --mini-h: 58px;
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+/* يلغي تأخير النقر 300ms على الجوال ويجعل الاستجابة فورية */
+button, input[type=range], .track.tappable, .playlist { touch-action: manipulation; }
 
 html, body {
   margin: 0;
@@ -76,6 +80,7 @@ button { cursor: pointer; }
 /* ------------------------------------------------------------ الهيكل */
 
 #app { padding-bottom: calc(var(--tabs-h) + env(safe-area-inset-bottom)); }
+body.has-mini #app { padding-bottom: calc(var(--tabs-h) + var(--mini-h) + env(safe-area-inset-bottom)); }
 
 .view {
   padding: calc(14px + env(safe-area-inset-top)) 16px 20px;
@@ -164,7 +169,7 @@ button { cursor: pointer; }
   width: 100%;
   -webkit-appearance: none;
   appearance: none;
-  height: 26px;
+  height: 34px; /* مساحة لمس أوسع للإصبع */
   background: transparent;
 }
 input[type=range]::-webkit-slider-runnable-track {
@@ -174,12 +179,13 @@ input[type=range]::-webkit-slider-runnable-track {
 }
 input[type=range]::-webkit-slider-thumb {
   -webkit-appearance: none;
-  width: 20px;
-  height: 20px;
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
   background: var(--accent);
-  margin-top: -7px;
+  margin-top: -8px;
   border: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
 }
 input[type=range]::-moz-range-track { height: 6px; border-radius: 99px; background: var(--line); }
 input[type=range]::-moz-range-thumb { width: 20px; height: 20px; border: none; border-radius: 50%; background: var(--accent); }
@@ -279,8 +285,11 @@ input[type=range]::-moz-range-thumb { width: 20px; height: 20px; border: none; b
   border: 1px solid var(--line);
   border-radius: 14px;
   padding: 9px 12px;
+  /* لا يرسم المتصفح الصفوف خارج الشاشة — فرق كبير في القوائم الطويلة */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 62px;
 }
-.track.tappable:active { background: var(--panel-2); }
+.track.tappable:active, .playlist:active { background: var(--panel-2); }
 
 .track-info { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; }
 .thumb {
@@ -552,5 +561,108 @@ body:not(.is-admin) .admin-only { display: none !important; }
 .sheet button.danger { color: var(--danger); }
 .sheet button.cancel { background: none; border: none; color: var(--muted); }
 
-body.offline .banner::after { content: ' (غير متصل بالجهاز)'; }
 .detail { position: relative; }
+
+/* ------------------------------------------- شريط التشغيل المصغّر */
+
+.minibar {
+  position: fixed;
+  bottom: calc(var(--tabs-h) + env(safe-area-inset-bottom));
+  right: 0;
+  left: 0;
+  height: var(--mini-h);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  background: rgba(20, 24, 34, 0.97);
+  backdrop-filter: blur(14px);
+  border-top: 1px solid var(--line);
+  z-index: 29;
+}
+.mini-progress {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 2px;
+  background: var(--line);
+}
+.mini-fill {
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  transition: width 0.4s linear;
+}
+.mini-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: none;
+  border: none;
+  padding: 0;
+  text-align: right;
+}
+.mini-thumb {
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  border-radius: 9px;
+  background: var(--panel-2) center/cover no-repeat;
+  display: grid;
+  place-items: center;
+  color: var(--line);
+  font-size: 17px;
+}
+.mini-text { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.mini-title, .mini-sub {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+}
+.mini-title { font-size: 14px; }
+.mini-sub { font-size: 12px; color: var(--muted); }
+.mini-btn {
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  font-size: 15px;
+}
+.mini-btn:disabled { opacity: 0.35; }
+
+/* ------------------------------------------------ مؤشر الانقطاع */
+
+.offline-pill {
+  position: fixed;
+  top: calc(10px + env(safe-area-inset-top));
+  right: 50%;
+  transform: translateX(50%);
+  background: #3a2020;
+  border: 1px solid var(--danger);
+  color: #ffb4b4;
+  padding: 7px 15px;
+  border-radius: 99px;
+  font-size: 12.5px;
+  z-index: 50;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+}
+
+/* -------------------------------------- استجابة فورية عند الضغط */
+
+.tbtn, .mini-btn, .key, .btn, .mini, .row-btn, .wide-btn, .more {
+  transition: transform 0.08s ease, border-color 0.15s ease, background 0.15s ease;
+}
+.tbtn:active, .mini-btn:active, .key:active, .mini:active, .row-btn:active, .wide-btn:active, .more:active {
+  transform: scale(0.94);
+}
+.tbtn.play:active { transform: scale(0.92); }
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}

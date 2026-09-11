@@ -38,6 +38,46 @@ class Library extends EventEmitter {
     this.rescanQueued = false;
     this.watcher = null;
     this.lastScanAt = 0;
+    // فهارس محسوبة مسبقًا: الفرز العربي وتطبيع نصوص البحث مكلفان،
+    // فنحسبهما مرة واحدة ونبطلهما عند تغيّر المكتبة فقط.
+    this.sortCache = new Map(); // sort -> [tracks]
+    this.idsCache = new Map(); // sort -> [ids]
+    this.searchIndex = new Map(); // id -> نص مطبّع للبحث
+  }
+
+  invalidateCaches() {
+    this.sortCache.clear();
+    this.idsCache.clear();
+    this.searchIndex.clear();
+  }
+
+  /** قائمة مفروزة ومخزّنة — لا تُعدّل النتيجة مباشرة. */
+  sortedList(sort = 'title') {
+    let cached = this.sortCache.get(sort);
+    if (!cached) {
+      cached = this.list().sort(comparator(sort));
+      this.sortCache.set(sort, cached);
+    }
+    return cached;
+  }
+
+  /** معرّفات الأغاني مفروزة ومخزّنة — يستخدمها محرّك التشغيل عند بناء الترتيب. */
+  sortedIds(sort = 'title') {
+    let cached = this.idsCache.get(sort);
+    if (!cached) {
+      cached = this.sortedList(sort).map((t) => t.id);
+      this.idsCache.set(sort, cached);
+    }
+    return cached;
+  }
+
+  searchKeyFor(track) {
+    let key = this.searchIndex.get(track.id);
+    if (key === undefined) {
+      key = normalize(`${track.title} ${track.artist} ${track.album} ${track.relPath}`);
+      this.searchIndex.set(track.id, key);
+    }
+    return key;
   }
 
   load(musicDir) {
@@ -69,15 +109,15 @@ class Library extends EventEmitter {
   /** بحث بسيط بالعربي والإنجليزي على العنوان والفنان والألبوم واسم الملف. */
   search(query, { limit = 300, offset = 0, sort = 'title' } = {}) {
     const q = normalize(query || '');
-    let items = this.list();
+    // القائمة المفروزة مخزّنة، و filter يُنتج نسخة جديدة فلا نعبث بالمخزَّن
+    let items = this.sortedList(sort);
     if (q) {
       const terms = q.split(/\s+/).filter(Boolean);
       items = items.filter((t) => {
-        const haystack = normalize(`${t.title} ${t.artist} ${t.album} ${t.relPath}`);
+        const haystack = this.searchKeyFor(t);
         return terms.every((term) => haystack.includes(term));
       });
     }
-    items.sort(comparator(sort));
     return { total: items.length, items: items.slice(offset, offset + limit) };
   }
 
@@ -149,6 +189,7 @@ class Library extends EventEmitter {
         }
       }
 
+      this.invalidateCaches();
       this.persist();
       this.lastScanAt = Date.now();
       const result = { added, removed, updated, total: this.tracks.size, ms: Date.now() - started };
@@ -208,6 +249,9 @@ class Library extends EventEmitter {
     if (!t) return;
     t.playCount = (t.playCount || 0) + 1;
     t.lastPlayedAt = Date.now();
+    // ترتيب "الأكثر تشغيلًا" وحده هو الذي تغيّر
+    this.sortCache.delete('most-played');
+    this.idsCache.delete('most-played');
   }
 
   /** يحذف ملف أغنية من القرص (للمدير فقط). */
@@ -217,6 +261,7 @@ class Library extends EventEmitter {
     await fsp.rm(t.path, { force: true });
     this.tracks.delete(id);
     if (t.cover) await fsp.rm(path.join(COVERS_DIR, t.cover), { force: true });
+    this.invalidateCaches();
     this.persist();
     this.emit('changed', { removed: 1, total: this.tracks.size });
     return true;

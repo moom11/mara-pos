@@ -44,9 +44,8 @@ class Playlists {
   }
 
   libraryTrackIds() {
-    return this.library
-      .search('', { limit: Number.MAX_SAFE_INTEGER, sort: 'title' })
-      .items.map((t) => t.id);
+    // مخزّنة في المكتبة — لا يُعاد الفرز في كل انتقال بين الأغاني
+    return this.library.sortedIds('title');
   }
 
   trackIdsOf(id) {

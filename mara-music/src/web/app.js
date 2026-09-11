@@ -165,7 +165,7 @@ function connectSocket() {
 
   ws.onopen = () => {
     app.wsRetry = 0;
-    document.body.classList.remove('offline');
+    setOffline(false);
   };
   ws.onmessage = (event) => {
     let msg;
@@ -178,7 +178,7 @@ function connectSocket() {
     else if (msg.type === 'revoked') logout(true);
   };
   ws.onclose = (e) => {
-    document.body.classList.add('offline');
+    setOffline(true);
     if (e.code === 4001) {
       logout(true);
       return;
@@ -222,17 +222,51 @@ function applyTick(tick) {
   if (!app.dragging) app.localPosition = tick.position;
 
   if (statusChanged) {
-    $('btn-play').textContent = tick.status === 'playing' ? '❚❚' : '▶';
+    const glyph = tick.status === 'playing' ? '❚❚' : '▶';
+    $('btn-play').textContent = glyph;
+    $('mini-play').textContent = glyph;
   }
   paintProgress();
 }
 
 function paintProgress() {
-  if (app.dragging) return;
   const duration = app.state ? app.state.duration || 0 : 0;
-  $('seek').value = duration ? Math.round((app.localPosition / duration) * 1000) : 0;
+  const ratio = duration ? app.localPosition / duration : 0;
+  $('mini-fill').style.width = `${Math.min(100, ratio * 100)}%`;
+  if (app.dragging) return;
+  $('seek').value = Math.round(ratio * 1000);
   $('now-position').textContent = fmt(app.localPosition);
   $('now-duration').textContent = fmt(duration);
+}
+
+/** شريط التشغيل المصغّر: يظهر في كل التبويبات عدا "الآن". */
+function renderMiniBar() {
+  const s = app.state;
+  const bar = $('minibar');
+  const hasTrack = !!(s && s.track);
+  bar.hidden = !hasTrack || app.view === 'now';
+  document.body.classList.toggle('has-mini', !bar.hidden);
+  if (!hasTrack) return;
+  $('mini-title').textContent = s.track.title || 'بدون عنوان';
+  $('mini-sub').textContent = s.track.artist || (s.source ? s.source.name : '');
+  $('mini-play').textContent = s.status === 'playing' ? '❚❚' : '▶';
+  const thumb = $('mini-thumb');
+  if (s.track.cover) {
+    if (thumb.dataset.cover !== s.track.cover) {
+      thumb.dataset.cover = s.track.cover;
+      thumb.style.backgroundImage = `url(${s.track.cover})`;
+      thumb.textContent = '';
+    }
+  } else {
+    thumb.style.backgroundImage = '';
+    thumb.textContent = '♪';
+    delete thumb.dataset.cover;
+  }
+}
+
+function setOffline(isOffline) {
+  document.body.classList.toggle('offline', isOffline);
+  $('offline-pill').hidden = !isOffline;
 }
 
 function applyPrayer(prayer) {
@@ -284,9 +318,11 @@ function renderNow() {
 
   // تعطيل الأزرار للموظف عند المنع
   const disabled = app.role !== 'admin' && !app.canPause;
-  for (const id of ['btn-play', 'btn-next', 'btn-prev']) $(id).disabled = disabled;
+  for (const id of ['btn-play', 'btn-next', 'btn-prev', 'mini-play', 'mini-next']) $(id).disabled = disabled;
   for (const id of ['btn-shuffle', 'btn-repeat']) $(id).disabled = app.role !== 'admin';
   $('volume').disabled = false;
+
+  renderMiniBar();
 }
 
 function renderPrayerStrip() {
@@ -307,8 +343,9 @@ function renderQueue() {
   if (!s) return;
   const list = $('queue-list');
   list.innerHTML = '';
+  const queueFragment = document.createDocumentFragment();
   if (!s.queue.length) {
-    list.appendChild(el('li', 'empty', 'لا توجد أغانٍ مضافة يدويًا'));
+    queueFragment.appendChild(el('li', 'empty', 'لا توجد أغانٍ مضافة يدويًا'));
   }
   s.queue.forEach((track, index) => {
     const li = el('li', 'track');
@@ -324,18 +361,21 @@ function renderQueue() {
       actions.append(up, down, rm);
       li.appendChild(actions);
     }
-    list.appendChild(li);
+    queueFragment.appendChild(li);
   });
+  list.appendChild(queueFragment);
 
   $('queue-source').textContent = s.source ? s.source.name : '';
   const upnext = $('upnext-list');
   upnext.innerHTML = '';
-  if (!s.upNext.length) upnext.appendChild(el('li', 'empty', '—'));
+  const upFragment = document.createDocumentFragment();
+  if (!s.upNext.length) upFragment.appendChild(el('li', 'empty', '—'));
   for (const track of s.upNext) {
     const li = el('li', 'track');
     li.appendChild(trackInfo(track));
-    upnext.appendChild(li);
+    upFragment.appendChild(li);
   }
+  upnext.appendChild(upFragment);
 }
 
 function trackInfo(track) {
@@ -373,20 +413,33 @@ async function loadLibrary(reset) {
     const data = await api(`/api/library?q=${encodeURIComponent(q)}&sort=${sort}&offset=${offset}&limit=${limit}`);
     app.library.total = data.total;
     app.library.items = offset === 0 ? data.items : [...app.library.items, ...data.items];
-    renderLibrary();
+    renderLibrary({ appendOnly: offset > 0 });
   } catch (err) {
     toast(err.message);
   }
 }
 
-function renderLibrary() {
+/**
+ * عند "عرض المزيد" نضيف الجديد فقط بدل إعادة بناء القائمة كلها،
+ * وكل الإضافات تتم دفعة واحدة (DocumentFragment) لتقليل إعادة التخطيط.
+ */
+function renderLibrary({ appendOnly = false } = {}) {
   const list = $('library-list');
-  list.innerHTML = '';
   $('library-count').textContent = app.library.total ? `(${app.library.total})` : '';
-  if (!app.library.items.length) {
-    list.appendChild(el('li', 'empty', app.library.q ? 'لا توجد نتائج' : 'المكتبة فارغة — ارفع أغانٍ أو ضعها في مجلد الموسيقى'));
+
+  let items = app.library.items;
+  if (appendOnly) {
+    items = app.library.items.slice(app.library.rendered || 0);
+  } else {
+    list.innerHTML = '';
+    app.library.rendered = 0;
+    if (!app.library.items.length) {
+      list.appendChild(el('li', 'empty', app.library.q ? 'لا توجد نتائج' : 'المكتبة فارغة — ارفع أغانٍ أو ضعها في مجلد الموسيقى'));
+    }
   }
-  for (const track of app.library.items) {
+
+  const fragment = document.createDocumentFragment();
+  for (const track of items) {
     const li = el('li', 'track tappable');
     li.appendChild(trackInfo(track));
     const play = el('button', 'mini primary', '▶');
@@ -397,8 +450,10 @@ function renderLibrary() {
     };
     li.appendChild(play);
     li.onclick = () => openSheet(track);
-    list.appendChild(li);
+    fragment.appendChild(li);
   }
+  list.appendChild(fragment);
+  app.library.rendered = app.library.items.length;
   $('btn-more').hidden = app.library.items.length >= app.library.total;
 }
 
@@ -913,6 +968,8 @@ function switchView(view) {
   for (const section of document.querySelectorAll('.view')) section.hidden = true;
   $(`view-${view}`).hidden = false;
   for (const btn of $('tabs').children) btn.classList.toggle('active', btn.dataset.view === view);
+  window.scrollTo(0, 0);
+  renderMiniBar();
   if (view === 'settings') renderSettings();
   if (view === 'playlists') {
     closePlaylist();
@@ -969,6 +1026,11 @@ function wireEvents() {
   };
   $('btn-mute').onclick = () => cmd('mute', { muted: !(app.state && app.state.muted) }).catch(() => {});
   $('btn-logout').onclick = () => logout();
+
+  // شريط التشغيل المصغّر
+  $('mini-play').onclick = () => cmd('toggle').catch((e) => toast(e.message));
+  $('mini-next').onclick = () => cmd('next').catch((e) => toast(e.message));
+  $('mini-open').onclick = () => switchView('now');
   $('auto-banner-resume').onclick = () => cmd('resume-now').catch((e) => toast(e.message));
 
   const sendVolume = throttle((value) => {

@@ -30,6 +30,8 @@
   <!-- ================================ التطبيق ============================= -->
   <div id="app" hidden>
 
+    <div class="offline-pill" id="offline-pill" hidden>لا يوجد اتصال بجهاز المحل…</div>
+
     <div class="banner" id="auto-banner" hidden>
       <span id="auto-banner-text"></span>
       <button class="link" id="auto-banner-resume" hidden>استئناف الآن</button>
@@ -134,6 +136,20 @@
       <header class="view-head"><h3>الإعدادات</h3></header>
       <div id="settings-body"></div>
     </section>
+
+    <!-- ------------------ شريط التشغيل المصغّر (خارج تبويب "الآن") -------- -->
+    <div class="minibar" id="minibar" hidden>
+      <div class="mini-progress"><div class="mini-fill" id="mini-fill"></div></div>
+      <button class="mini-open" id="mini-open">
+        <span class="mini-thumb" id="mini-thumb">♪</span>
+        <span class="mini-text">
+          <span class="mini-title" id="mini-title">—</span>
+          <span class="mini-sub" id="mini-sub"></span>
+        </span>
+      </button>
+      <button class="mini-btn" id="mini-play">▶</button>
+      <button class="mini-btn" id="mini-next">⏭</button>
+    </div>
 
     <!-- ------------------------------ التبويبات ------------------------- -->
     <nav class="tabs" id="tabs">
