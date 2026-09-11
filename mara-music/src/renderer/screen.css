@@ -11,6 +11,9 @@
 
 * { box-sizing: border-box; }
 
+/* السمة hidden يجب أن تتغلّب على أي display تحدّده القواعد أدناه */
+[hidden] { display: none !important; }
+
 html, body {
   margin: 0;
   height: 100%;

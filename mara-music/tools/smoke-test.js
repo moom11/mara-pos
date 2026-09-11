@@ -515,6 +515,12 @@ async function main() {
   const page = await fetch(`${base}/`);
   const html = await page.text();
   check('صفحة التحكم تُقدَّم', page.status === 200 && html.includes('مارا ميوزك'));
+  // حارس ضد خطأ تكرّر: قواعد display تتغلّب على السمة hidden فتظهر عناصر مخفية
+  const webCss = await (await fetch(`${base}/style.css`)).text();
+  check('تنسيق الجوال يفرض إخفاء عناصر hidden', /\[hidden\]\s*\{\s*display:\s*none\s*!important/.test(webCss));
+  const screenCss = fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'screen.css'), 'utf8');
+  check('تنسيق شاشة الجهاز يفرض إخفاء عناصر hidden', /\[hidden\]\s*\{\s*display:\s*none\s*!important/.test(screenCss));
+
   const manifest = await fetch(`${base}/manifest.webmanifest`);
   check('ملف PWA موجود', manifest.status === 200);
   const icon = await fetch(`${base}/icons/icon-192.png`);

@@ -15,6 +15,13 @@
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
+/*
+ * ضروري: أي عنصر نخفيه بالسمة hidden قد يكون له display في قاعدة لاحقة
+ * (flex/grid/block)، وقاعدة المؤلف تتغلّب على إخفاء المتصفح الافتراضي.
+ * بدون هذا السطر تبقى ورقة الإجراءات وشريط التشغيل وشاشة الرمز ظاهرة دائمًا.
+ */
+[hidden] { display: none !important; }
+
 /* يلغي تأخير النقر 300ms على الجوال ويجعل الاستجابة فورية */
 button, input[type=range], .track.tappable, .playlist { touch-action: manipulation; }
 
