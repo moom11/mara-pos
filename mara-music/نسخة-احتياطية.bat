@@ -1,4 +1,4 @@
-@echo off
+﻿@echo off
 chcp 65001 >nul
 title Mara Music - نسخة احتياطية
 rem ------------------------------------------------------------------
@@ -10,17 +10,16 @@ echo.
 echo   ===== نسخة احتياطية لـ Mara Music =====
 echo.
 echo   اكتب مسار المجلد الذي تريد حفظ النسخة فيه.
-echo   مثال:  E:\MaraBackup
+echo   استخدم حروفًا إنجليزية في المسار. مثال:  E:\MaraBackup
+echo   أو اتركه فارغًا واضغط Enter لحفظها على سطح المكتب.
 echo.
 
 set /p DEST="   المسار: "
 
-if "%DEST%"=="" (
-  echo.
-  echo   [خطأ] لم تكتب مسارًا.
-  pause
-  exit /b 1
-)
+if "%DEST%"=="" set "DEST=%USERPROFILE%\Desktop\MaraBackup"
+
+echo.
+echo   الوجهة: %DEST%
 
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0tools\transfer.ps1" -Mode backup -Path "%DEST%"
 

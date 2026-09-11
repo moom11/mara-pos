@@ -1,4 +1,4 @@
-<#
+﻿<#
     نسخ احتياطي واستعادة لبيانات Mara Music.
 
     نسخ احتياطي:  powershell -ExecutionPolicy Bypass -File transfer.ps1 -Mode backup  -Path E:\MaraBackup
