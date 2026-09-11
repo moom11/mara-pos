@@ -526,6 +526,18 @@ async function main() {
   const page = await fetch(`${base}/`);
   const html = await page.text();
   check('صفحة التحكم تُقدَّم', page.status === 200 && html.includes('مارا ميوزك'));
+  // حارس ضد خطأ تكرّر: ترميز ملفات ويندوز
+  // BOM مطلوبة في .ps1 وإلا قُرئت العربية مشوّهة، وممنوعة في .bat وإلا أُبطل @echo off
+  const projectRoot = path.join(__dirname, '..');
+  const batFiles = fs.readdirSync(projectRoot).filter((f) => f.endsWith('.bat'));
+  check('توجد ملفات تشغيل bat', batFiles.length >= 5, `العدد: ${batFiles.length}`);
+  const batWithBom = batFiles.filter((f) => fs.readFileSync(path.join(projectRoot, f)).slice(0, 3).equals(Buffer.from([0xef, 0xbb, 0xbf])));
+  check('ملفات bat بلا BOM (وإلا تعطّل @echo off)', batWithBom.length === 0, batWithBom.join(', '));
+
+  const psFiles = fs.readdirSync(path.join(projectRoot, 'tools')).filter((f) => f.endsWith('.ps1'));
+  const psWithoutBom = psFiles.filter((f) => !fs.readFileSync(path.join(projectRoot, 'tools', f)).slice(0, 3).equals(Buffer.from([0xef, 0xbb, 0xbf])));
+  check('ملفات ps1 تحمل BOM (وإلا تشوّهت العربية)', psWithoutBom.length === 0, psWithoutBom.join(', '));
+
   // حارس ضد خطأ تكرّر: قواعد display تتغلّب على السمة hidden فتظهر عناصر مخفية
   const webCss = await (await fetch(`${base}/style.css`)).text();
   check('تنسيق الجوال يفرض إخفاء عناصر hidden', /\[hidden\]\s*\{\s*display:\s*none\s*!important/.test(webCss));
