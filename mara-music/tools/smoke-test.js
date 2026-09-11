@@ -498,6 +498,17 @@ async function main() {
   check('اختفاء الملف من المكتبة بعد حذفه', !library.tracks.has(tracks[5].id) && library.tracks.size === 6);
   check('ترتيب التشغيل نُظّف من المحذوف', !player.order.includes(tracks[5].id));
 
+  // ملف إعدادات حُرِّر يدويًا على ويندوز يبدأ بعلامة BOM
+  const { readJSON, writeJSON, DATA_DIR: _d } = (() => {
+    const store = require('../src/main/store');
+    const config = require('../src/main/config');
+    return { ...store, DATA_DIR: config.DATA_DIR };
+  })();
+  writeJSON('bom-check', { adminPin: '1212' });
+  const bomFile = path.join(_d, 'bom-check.json');
+  fs.writeFileSync(bomFile, `﻿${fs.readFileSync(bomFile, 'utf8')}`, 'utf8');
+  check('قراءة ملف JSON حُرِّر يدويًا مع علامة BOM', readJSON('bom-check', null)?.adminPin === '1212');
+
   // استعادة الحالة بعد إعادة التشغيل
   player.state.currentId = tracks[0].id;
   player.state.position = 42;

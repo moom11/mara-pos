@@ -16,7 +16,9 @@ function filePath(name) {
 function readJSON(name, fallback) {
   const file = filePath(name);
   try {
-    const raw = fs.readFileSync(file, 'utf8');
+    let raw = fs.readFileSync(file, 'utf8');
+    // محرّرات ويندوز (Notepad وSet-Content) تضيف علامة BOM تُفشل JSON.parse
+    if (raw.charCodeAt(0) === 0xfeff) raw = raw.slice(1);
     return JSON.parse(raw);
   } catch (err) {
     if (err.code !== 'ENOENT') {
