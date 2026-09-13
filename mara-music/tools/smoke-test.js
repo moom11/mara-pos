@@ -585,6 +585,13 @@ async function main() {
   const batWithBom = batFiles.filter((f) => fs.readFileSync(path.join(projectRoot, f)).slice(0, 3).equals(Buffer.from([0xef, 0xbb, 0xbf])));
   check('ملفات bat بلا BOM (وإلا تعطّل @echo off)', batWithBom.length === 0, batWithBom.join(', '));
 
+  check('توجد أداة التحديث عبر الإنترنت', fs.existsSync(path.join(projectRoot, 'تحديث-مارا.bat')) && fs.existsSync(path.join(projectRoot, 'tools', 'update.ps1')));
+  const updateSource = fs.readFileSync(path.join(projectRoot, 'tools', 'update.ps1'), 'utf8');
+  // نسخ مجلد فوق مجلد موجود بالاسم نفسه يولّد tools\tools بدل الاستبدال
+  check('التحديث ينسخ محتوى مجلد الأدوات لا المجلد نفسه', /tools\\\*/.test(updateSource));
+  check('التحديث يوقف البرنامج قبل استبدال ملفاته', /Stop-Process/.test(updateSource));
+  check('التحديث يحفظ نسخة احتياطية قبل الاستبدال', /_src-backup/.test(updateSource));
+
   const psFiles = fs.readdirSync(path.join(projectRoot, 'tools')).filter((f) => f.endsWith('.ps1'));
   const psWithoutBom = psFiles.filter((f) => !fs.readFileSync(path.join(projectRoot, 'tools', f)).slice(0, 3).equals(Buffer.from([0xef, 0xbb, 0xbf])));
   check('ملفات ps1 تحمل BOM (وإلا تشوّهت العربية)', psWithoutBom.length === 0, psWithoutBom.join(', '));
