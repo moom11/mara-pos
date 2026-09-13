@@ -45,6 +45,16 @@ const DEFAULT_SETTINGS = {
     durations: { fajr: 25, dhuhr: 25, asr: 20, maghrib: 15, isha: 20, jumuah: 60 },
     enabledPrayers: { fajr: false, dhuhr: true, asr: true, maghrib: true, isha: true }
   },
+  // مود الديجي — انتقالات ممزوجة ومؤثرات
+  dj: {
+    enabled: false,
+    autoMix: true, // ينتقل قبل نهاية الأغنية بدل انتظار المقدمة الطويلة
+    mixAtSec: 12, // يبدأ المزج حين يتبقّى هذا العدد من الثواني
+    skipIntroSec: 0, // يتجاوز بداية الأغنية القادمة
+    sweep: true, // كنس ترددي للأغنية الخارجة
+    echoOnMix: true, // ذيل صدى عند الانتقال
+    dropBuildSec: 4 // مدة الشدّ قبل "الدروب"
+  },
   // روابط البث المباشر (إذاعات أو خدمات بث يملك المستخدم حق تشغيلها)
   streams: [],
   // الجدولة الزمنية

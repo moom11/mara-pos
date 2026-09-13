@@ -353,6 +353,57 @@ async function main() {
 
   // ==================================================== 6د) البث المباشر
 
+  section('مود الديجي');
+
+  check('المود مطفأ افتراضيًا', player.publicState().dj.enabled === false);
+  const staffDj = await call('/api/player/dj', { method: 'POST', body: { enabled: true }, tokenOverride: staffToken });
+  check('منع الموظف من التحكّم بالديجي', staffDj.status === 403);
+
+  const dropOff = await call('/api/player/dj-drop', { method: 'POST' });
+  check('رفض الدروب والمود مطفأ', dropOff.status === 400);
+
+  const djOn = await call('/api/player/dj', { method: 'POST', body: { enabled: true, mixAtSec: 9 } });
+  check('تفعيل مود الديجي', djOn.status === 200 && player.publicState().dj.enabled === true);
+  check('إرسال الإعداد لمحرّك الصوت', commands.filter((c) => c.type === 'dj').pop().config.enabled === true);
+  check('حفظ لحظة بدء المزج', player.publicState().dj.mixAtSec === 9);
+  check('إعدادات الديجي تُحفظ للإقلاع القادم', settings.dj.enabled === true && settings.dj.mixAtSec === 9);
+
+  await call('/api/player/dj', { method: 'POST', body: { mixAtSec: 99, skipIntroSec: -5 } });
+  check('حصر لحظة المزج داخل حدود آمنة', player.publicState().dj.mixAtSec === 20);
+  check('حصر تجاوز المقدمة داخل حدود آمنة', player.publicState().dj.skipIntroSec === 0);
+
+  await call('/api/player/dj', { method: 'POST', body: { filter: 250, echo: true } });
+  check('حصر الفلتر داخل مداه', player.publicState().dj.filter === 100);
+  check('تفعيل الصدى', player.publicState().dj.echo === true);
+  check('الفلتر والصدى لا يُحفظان في الإعدادات', settings.dj.filter === undefined && settings.dj.echo === undefined);
+
+  const dropOn = await call('/api/player/dj-drop', { method: 'POST' });
+  check('تنفيذ الدروب', dropOn.status === 200 && commands.filter((c) => c.type === 'dj-drop').length === 1);
+
+  player.playNow(tracks[0].id);
+  const beforeDjNext = player.state.currentId;
+  await call('/api/player/dj-next', { method: 'POST' });
+  check('نيكس الديجي يطلب مزجًا لا قطعًا', commands.filter((c) => c.type === 'dj-mix').length === 1);
+  check('الأغنية لا تتغيّر قبل أن يؤكّد المحرّك المزج', player.state.currentId === beforeDjNext);
+  // المزج تعذّر: يجب أن ينتقل بالطريقة العادية فورًا — لا يترك صمتًا
+  const loadsBeforeFallback = commands.filter((c) => c.type === 'load').length;
+  player.onRendererEvent({ type: 'dj-mix-failed', id: player.state.currentId });
+  check('السقوط لانتقال عادي إذا تعذّر المزج', commands.filter((c) => c.type === 'load').length === loadsBeforeFallback + 1);
+  check('التشغيل مستمر بعد تعذّر المزج', player.state.status === 'playing');
+
+  await call('/api/player/dj', { method: 'POST', body: { enabled: false } });
+  check('إطفاء المود يصفّر الفلتر', player.publicState().dj.filter === 0);
+  check('إطفاء المود يطفئ الصدى', player.publicState().dj.echo === false);
+
+  const noMix = commands.filter((c) => c.type === 'dj-mix').length;
+  await call('/api/player/dj-next', { method: 'POST' });
+  check('نيكس الديجي ينتقل عاديًا والمود مطفأ', commands.filter((c) => c.type === 'dj-mix').length === noMix);
+
+  // حارس: الويب أوديو يُسكت أي مصدر خارجي، فالبث يجب أن يبقى على عنصر منفصل
+  const engineSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'engine.js'), 'utf8');
+  check('محرّك الصوت يفصل البث المباشر عن معالجات الديجي', /startsWith\('stream:'\)/.test(engineSource));
+  check('لا مزج مع البث المباشر', /if \(current === S\) return false/.test(engineSource));
+
   section('البث المباشر');
   const badUrl = await call('/api/streams', { method: 'POST', body: { name: 'خطر', url: 'file:///C:/Windows/System32' } });
   check('رفض الروابط غير http/https', badUrl.status === 400);

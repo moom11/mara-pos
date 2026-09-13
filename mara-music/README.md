@@ -32,6 +32,16 @@
   ومع انقطاع الشبكة يعود المشغّل تلقائيًا لمكتبتك المحلية
 - كل الأجهزة المتصلة ترى نفس الحالة لحظيًا (WebSocket)
 
+**مود مارا ديجي (للمدير فقط):**
+- **مزج تلقائي**: ينتقل قبل نهاية الأغنية بثوانٍ قابلة للضبط، فلا صمت ولا مقدمات طويلة
+- **نيكس ديجي**: انتقال ممزوج بضغطة واحدة بدل القطع المفاجئ
+- **كنس ترددي** على الأغنية الخارجة و**ذيل صدى** عند الانتقال
+- **فلتر حيّ** من الجوال: غائر ↔ طبيعي ↔ مشدود
+- **دروب**: شدّ تدريجي ثم انفراج مفاجئ
+- ضاغط ديناميكي في نهاية المسار يحمي السماعات من قمم المؤثرات
+- الفلتر والصدى لا يُحفظان: إعادة التشغيل تبدأ دائمًا بصوت طبيعي
+- المؤثرات تُطبَّق على المكتبة المحلية فقط — البث المباشر يمرّ على مسار منفصل
+
 **تلقائيًا:**
 - إيقاف أو خفض الصوت في أوقات الصلاة (حساب فلكي محلي، بدون إنترنت — طريقة أم القرى افتراضيًا)
 - جدولة زمنية: قائمة هادئة صباحًا، أنشط وقت الذروة، خفض الصوت آخر الليل
@@ -122,7 +132,7 @@ npm run dist        # ينتج dist/MaraMusic-Setup-1.0.0.exe
 |---|---|
 | `POST /api/auth/login` | دخول بالرمز، يعيد token ودور المستخدم |
 | `GET /api/state` | حالة التشغيل الكاملة |
-| `POST /api/player/:action` | play, pause, toggle, next, previous, seek, volume, mute, shuffle, repeat, source, play-now, play-next, enqueue, queue-move, queue-remove, queue-clear, resume-now |
+| `POST /api/player/:action` | play, pause, toggle, next, previous, seek, volume, mute, shuffle, repeat, source, play-now, play-next, enqueue, queue-move, queue-remove, queue-clear, resume-now, dj, dj-next, dj-drop |
 | `GET /api/library` | بحث وفرز المكتبة |
 | `GET /api/stream/:id` | بثّ الملف الصوتي (يدعم Range) |
 | `GET/POST/PATCH/DELETE /api/playlists…` | إدارة القوائم |

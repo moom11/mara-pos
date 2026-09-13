@@ -76,6 +76,41 @@
         <span class="vol-value" id="volume-value">60%</span>
       </div>
 
+      <!-- ---------------------------- مود الديجي --------------------------- -->
+      <div class="dj admin-only" id="dj-block">
+        <button class="dj-toggle" id="dj-toggle">
+          <span class="dj-label">🎧 مود مارا ديجي</span>
+          <span class="dj-state" id="dj-state">مطفأ</span>
+        </button>
+
+        <div class="dj-panel" id="dj-panel" hidden>
+          <div class="dj-actions">
+            <button class="dj-big" id="dj-next">نيكس ديجي</button>
+            <button class="dj-big drop" id="dj-drop">دروب</button>
+          </div>
+
+          <div class="dj-fx">
+            <button class="dj-chip" id="dj-echo">صدى</button>
+            <button class="dj-chip" id="dj-automix">مزج تلقائي</button>
+            <button class="dj-chip" id="dj-reset">تصفير المؤثرات</button>
+          </div>
+
+          <div class="dj-filter">
+            <div class="dj-filter-head">
+              <span>فلتر</span>
+              <span id="dj-filter-value">طبيعي</span>
+            </div>
+            <input type="range" id="dj-filter" min="-100" max="100" value="0" step="1" />
+            <div class="dj-filter-ends"><span>غائر</span><span>مشدود</span></div>
+          </div>
+
+          <p class="hint">
+            المزج التلقائي ينتقل قبل نهاية الأغنية بثوانٍ مع كنس ترددي وذيل صدى،
+            فلا تسمع صمتًا بين الأغاني. الإعدادات الدقيقة في تبويب «الإعدادات».
+          </p>
+        </div>
+      </div>
+
       <div class="prayer-strip" id="prayer-strip"></div>
     </section>
 

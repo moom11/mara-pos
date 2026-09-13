@@ -177,6 +177,15 @@ function createServer(ctx) {
       case 'resume-now':
         player.clearAutoPause({ resume: true });
         break;
+      case 'dj':
+        player.setDj(req.body || {});
+        break;
+      case 'dj-next':
+        player.djNext();
+        break;
+      case 'dj-drop':
+        if (!player.djDrop()) return res.status(400).json({ error: 'فعّل مود الديجي أولًا' });
+        break;
       default:
         return res.status(400).json({ error: 'أمر غير معروف' });
     }
@@ -357,14 +366,14 @@ function createServer(ctx) {
         cb(null, uniqueName(path.join(settings().musicDir, 'Uploads'), sanitize(original)));
       }
     }),
-    limits: { fileSize: 80 * 1024 * 1024, files: 25 },
+    limits: { fileSize: 120 * 1024 * 1024, files: 60 },
     fileFilter: (_req, file, cb) => {
       const ext = path.extname(file.originalname).toLowerCase();
       cb(null, AUDIO_EXTENSIONS.has(ext));
     }
   });
 
-  app.post('/api/upload', requireAdmin, upload.array('files', 25), async (req, res) => {
+  app.post('/api/upload', requireAdmin, upload.array('files', 60), async (req, res) => {
     const files = req.files || [];
     if (!files.length) return res.status(400).json({ error: 'لم يتم رفع أي ملف صوتي صالح' });
     const before = new Set(library.tracks.keys());
@@ -437,6 +446,7 @@ function createServer(ctx) {
     if (typeof patch.adminPin === 'string' && /^\d{4,10}$/.test(patch.adminPin)) s.adminPin = patch.adminPin;
     if (typeof patch.staffPin === 'string' && /^\d{4,10}$/.test(patch.staffPin)) s.staffPin = patch.staffPin;
     if (typeof patch.autoStart === 'boolean') s.autoStart = patch.autoStart;
+    if (patch.dj && typeof patch.dj === 'object') player.setDj(patch.dj);
     if (patch.kiosk && typeof patch.kiosk === 'object') s.kiosk = { ...s.kiosk, ...patch.kiosk };
     if (patch.prayer && typeof patch.prayer === 'object') {
       s.prayer = {

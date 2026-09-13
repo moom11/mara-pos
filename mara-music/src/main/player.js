@@ -4,6 +4,19 @@ const { EventEmitter } = require('events');
 const { readJSON, DebouncedWriter } = require('./store');
 const { ALL_TRACKS_ID } = require('./playlists');
 
+const DJ_DEFAULTS = {
+  enabled: false,
+  autoMix: true,
+  mixAtSec: 12,
+  skipIntroSec: 0,
+  sweep: true,
+  echoOnMix: true,
+  dropBuildSec: 4
+};
+
+/** ما يُحفَظ في الإعدادات — دون الفلتر والصدى اللحظيين. */
+const DJ_PERSISTED = Object.keys(DJ_DEFAULTS);
+
 /**
  * محرّك التشغيل: هذا هو "مصدر الحقيقة" الوحيد.
  * الجوال والمتصفح مجرد أدوات تحكّم — إغلاقها لا يوقف الموسيقى.
@@ -37,6 +50,14 @@ class Player extends EventEmitter {
       lastError: null
     };
     this.streamRetries = 0;
+
+    // مود الديجي — الفلتر والصدى لحظيان: لا يُحفظان حتى لا يبدأ اليوم بصوت مكتوم
+    this.dj = {
+      ...DJ_DEFAULTS,
+      ...(settings.dj || {}),
+      filter: 0,
+      echo: false
+    };
 
     this.order = [];
     this.orderPos = -1;
@@ -95,6 +116,7 @@ class Player extends EventEmitter {
     this.streamSuffix = streamSuffix;
     this.rendererReady = true;
     this.command('volume', { value: this.effectiveVolume(), fadeMs: 0 });
+    this.command('dj', { config: this.dj, fadeMs: 0 });
     if (this.state.currentId) {
       this.command('load', {
         id: this.state.currentId,
@@ -460,6 +482,54 @@ class Player extends EventEmitter {
     this.publish();
   }
 
+  // ---------------------------------------------------------- مود الديجي
+
+  /**
+   * يضبط إعدادات الديجي ويبلّغ المحرّك بها.
+   * الفلتر والصدى لحظيّان (لا يُحفظان)؛ البقية تُحفظ في الإعدادات.
+   */
+  setDj(patch = {}) {
+    const before = this.dj.enabled;
+    if (typeof patch.enabled === 'boolean') this.dj.enabled = patch.enabled;
+    if (typeof patch.autoMix === 'boolean') this.dj.autoMix = patch.autoMix;
+    if (typeof patch.sweep === 'boolean') this.dj.sweep = patch.sweep;
+    if (typeof patch.echoOnMix === 'boolean') this.dj.echoOnMix = patch.echoOnMix;
+    if (typeof patch.echo === 'boolean') this.dj.echo = patch.echo;
+    if (patch.mixAtSec !== undefined) this.dj.mixAtSec = clampRange(patch.mixAtSec, 2, 20, 12);
+    if (patch.skipIntroSec !== undefined) this.dj.skipIntroSec = clampRange(patch.skipIntroSec, 0, 30, 0);
+    if (patch.dropBuildSec !== undefined) this.dj.dropBuildSec = clampRange(patch.dropBuildSec, 1, 12, 4);
+    if (patch.filter !== undefined) this.dj.filter = clampRange(patch.filter, -100, 100, 0);
+
+    // إطفاء المود يُرجع الصوت طبيعيًا فورًا — لا يترك المحل على فلتر مكتوم
+    if (before && !this.dj.enabled) {
+      this.dj.filter = 0;
+      this.dj.echo = false;
+    }
+
+    const persisted = { ...(this.settings.dj || {}) };
+    for (const key of DJ_PERSISTED) persisted[key] = this.dj[key];
+    this.settings.dj = persisted;
+    this.command('dj', { config: this.dj });
+    this.emit('settings-changed');
+    this.publish();
+    return this.dj;
+  }
+
+  /** انتقال ممزوج بمؤثرات. يسقط تلقائيًا لانتقال عادي إن لم يكن المود مفعّلًا. */
+  djNext() {
+    if (!this.dj.enabled || this.state.stream || !this.pendingNext) {
+      return this.next({ manual: true });
+    }
+    this.command('dj-mix', {});
+    return true;
+  }
+
+  djDrop() {
+    if (!this.dj.enabled) return false;
+    this.command('dj-drop', { buildSec: this.dj.dropBuildSec });
+    return true;
+  }
+
   // ------------------------------------------------------- الإيقاف التلقائي
 
   /** إيقاف/خفض تلقائي (الصلاة أو الجدولة). */
@@ -527,6 +597,11 @@ class Player extends EventEmitter {
         } else {
           this.next({ manual: false });
         }
+        break;
+      }
+      case 'dj-mix-failed': {
+        // الأغنية التالية لم تكن جاهزة — ننتقل بالطريقة العادية بدل ترك الصمت
+        this.next({ manual: true });
         break;
       }
       case 'error': {
@@ -677,6 +752,7 @@ class Player extends EventEmitter {
       shuffle: this.state.shuffle,
       repeat: this.state.repeat,
       source: { id: this.state.sourceId, name: this.state.sourceName },
+      dj: { ...this.dj },
       queue: this.state.queue.map((id) => {
         const t = this.library.get(id);
         return t ? publicTrack(t) : { id, title: 'ملف مفقود', missing: true };
@@ -711,6 +787,12 @@ function publicTrack(t) {
     cover: t.cover ? `/api/cover/${t.id}` : null,
     playCount: t.playCount || 0
   };
+}
+
+function clampRange(value, min, max, fallback) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, n));
 }
 
 function clamp01(v) {

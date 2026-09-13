@@ -30,6 +30,7 @@ const app = {
   wsRetry: 0,
   view: 'now',
   dragging: false,
+  djDragging: false,
   localPosition: 0,
   library: { q: '', sort: 'title', offset: 0, limit: 60, total: 0, items: [] },
   currentPlaylist: null,
@@ -286,6 +287,7 @@ function renderNow() {
   if (!s) return;
   const track = s.track;
 
+  renderDj();
   $('now-source').textContent = s.source ? s.source.name : '';
   $('now-title').textContent = track ? track.title : (s.libraryCount ? 'متوقف' : 'المكتبة فارغة');
   $('now-artist').textContent = track ? track.artist || '' : '';
@@ -333,6 +335,30 @@ function renderNow() {
   $('volume').disabled = false;
 
   renderMiniBar();
+}
+
+/** لوحة الديجي — تعكس حالة الجهاز، ولا تُحدَّث أثناء سحب الفلتر. */
+function renderDj() {
+  if (app.role !== 'admin') return;
+  const dj = (app.state && app.state.dj) || null;
+  if (!dj) return;
+  const block = $('dj-block');
+  block.classList.toggle('on', !!dj.enabled);
+  $('dj-state').textContent = dj.enabled ? 'يعمل' : 'مطفأ';
+  $('dj-panel').hidden = !dj.enabled;
+  $('dj-echo').classList.toggle('on', !!dj.echo);
+  $('dj-automix').classList.toggle('on', !!dj.autoMix);
+  if (!app.djDragging) {
+    $('dj-filter').value = dj.filter || 0;
+    $('dj-filter-value').textContent = filterLabel(dj.filter || 0);
+  }
+}
+
+function filterLabel(value) {
+  const v = Number(value) || 0;
+  if (v > 2) return `مشدود ${v}%`;
+  if (v < -2) return `غائر ${Math.abs(v)}%`;
+  return 'طبيعي';
 }
 
 function renderPrayerStrip() {
@@ -685,28 +711,62 @@ async function handleSheetAction(action) {
 
 // ================================================================ الرفع
 
+const UPLOAD_BATCH = 20;
+
+/**
+ * الرفع على دفعات مع نسبة تقدّم حقيقية.
+ * الدفعات تمنع سقوط رفعة كبيرة كاملة بسبب انقطاع لحظي في شبكة المحل.
+ */
 async function uploadFiles(files) {
   if (!files.length) return;
-  const form = new FormData();
-  for (const file of files) form.append('files', file);
   const box = $('upload-progress');
   box.hidden = false;
-  box.textContent = `جارٍ رفع ${files.length} ملف…`;
 
+  const batches = [];
+  for (let i = 0; i < files.length; i += UPLOAD_BATCH) batches.push(files.slice(i, i + UPLOAD_BATCH));
+
+  let uploaded = 0;
+  let added = 0;
   try {
-    const res = await fetch('/api/upload', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${store.token}` },
-      body: form
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'فشل الرفع');
-    box.textContent = `تم رفع ${data.uploaded} ملف — أُضيفت ${data.added.length} أغنية`;
-    setTimeout(() => { box.hidden = true; }, 4000);
+    for (let b = 0; b < batches.length; b += 1) {
+      const batch = batches[b];
+      const done = uploaded;
+      const data = await uploadBatch(batch, (ratio) => {
+        const total = done + batch.length * ratio;
+        box.textContent = `جارٍ الرفع… ${Math.round((total / files.length) * 100)}% (${Math.round(total)} من ${files.length})`;
+      });
+      uploaded += data.uploaded;
+      added += data.added.length;
+    }
+    box.textContent = added
+      ? `تم رفع ${uploaded} ملف — أُضيفت ${added} أغنية للمكتبة`
+      : `تم رفع ${uploaded} ملف — لا جديد (موجودة مسبقًا)`;
+    setTimeout(() => { box.hidden = true; }, 5000);
     loadLibrary(true);
   } catch (err) {
-    box.textContent = `تعذّر الرفع: ${err.message}`;
+    box.textContent = `تعذّر الرفع: ${err.message}${uploaded ? ` — نجح ${uploaded} ملف قبل التوقّف` : ''}`;
   }
+}
+
+function uploadBatch(batch, onProgress) {
+  return new Promise((resolve, reject) => {
+    const form = new FormData();
+    for (const file of batch) form.append('files', file);
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/upload');
+    xhr.setRequestHeader('Authorization', `Bearer ${store.token}`);
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgress(e.loaded / e.total);
+    };
+    xhr.onload = () => {
+      let data = null;
+      try { data = JSON.parse(xhr.responseText); } catch (_) { /* تجاهل */ }
+      if (xhr.status >= 200 && xhr.status < 300 && data) resolve(data);
+      else reject(new Error((data && data.error) || `خطأ ${xhr.status}`));
+    };
+    xhr.onerror = () => reject(new Error('انقطع الاتصال بجهاز المحل'));
+    xhr.send(form);
+  });
 }
 
 // ================================================================ الإعدادات
@@ -735,6 +795,18 @@ async function renderSettings() {
     toggleRow('شاشة كاملة على جهاز المطعم', 'kiosk.fullscreen', settings.kiosk?.fullscreen !== false),
     toggleRow('عرض رمز QR على الشاشة', 'kiosk.showQr', settings.kiosk?.showQr !== false),
     toggleRow('تشغيل البرنامج تلقائيًا مع ويندوز', 'autoStart', settings.autoStart !== false)
+  ]));
+
+  // --- الديجي
+  const djSettings = settings.dj || {};
+  body.appendChild(card('مود مارا ديجي', [
+    toggleRow('تفعيل المود', 'dj.enabled', djSettings.enabled === true),
+    toggleRow('مزج تلقائي بين الأغاني', 'dj.autoMix', djSettings.autoMix !== false),
+    numberRow('يبدأ المزج قبل النهاية بـ (ثانية)', 'dj.mixAtSec', djSettings.mixAtSec ?? 12, 2, 20, 1),
+    numberRow('تجاوز بداية الأغنية القادمة (ثانية)', 'dj.skipIntroSec', djSettings.skipIntroSec ?? 0, 0, 30, 1),
+    toggleRow('كنس ترددي عند الانتقال', 'dj.sweep', djSettings.sweep !== false),
+    toggleRow('ذيل صدى عند الانتقال', 'dj.echoOnMix', djSettings.echoOnMix !== false),
+    numberRow('مدة الشدّ قبل الدروب (ثانية)', 'dj.dropBuildSec', djSettings.dropBuildSec ?? 4, 1, 12, 1)
   ]));
 
   // --- الصلاة
@@ -1137,6 +1209,35 @@ function wireEvents() {
     $('volume-value').textContent = `${pct}%`;
     sendVolume(pct / 100);
   });
+
+  // ------------------------------------------------------------ الديجي
+  const dj = (body) => cmd('dj', body).catch((e) => toast(e.message));
+
+  $('dj-toggle').onclick = () => {
+    const on = !!(app.state && app.state.dj && app.state.dj.enabled);
+    dj({ enabled: !on });
+  };
+  $('dj-next').onclick = () => cmd('dj-next').catch((e) => toast(e.message));
+  $('dj-drop').onclick = () => cmd('dj-drop').catch((e) => toast(e.message));
+  $('dj-echo').onclick = () => dj({ echo: !(app.state && app.state.dj && app.state.dj.echo) });
+  $('dj-automix').onclick = () => dj({ autoMix: !(app.state && app.state.dj && app.state.dj.autoMix) });
+  $('dj-reset').onclick = () => {
+    $('dj-filter').value = 0;
+    $('dj-filter-value').textContent = filterLabel(0);
+    dj({ filter: 0, echo: false });
+  };
+
+  const sendFilter = throttle((value) => dj({ filter: value }), 150);
+  const djFilter = $('dj-filter');
+  djFilter.addEventListener('pointerdown', () => { app.djDragging = true; });
+  djFilter.addEventListener('input', (e) => {
+    const value = Number(e.target.value);
+    $('dj-filter-value').textContent = filterLabel(value);
+    sendFilter(value);
+  });
+  const endFilterDrag = () => { app.djDragging = false; };
+  djFilter.addEventListener('pointerup', endFilterDrag);
+  djFilter.addEventListener('change', endFilterDrag);
 
   const seek = $('seek');
   seek.addEventListener('pointerdown', () => { app.dragging = true; });
