@@ -857,6 +857,7 @@ async function renderSettings() {
   body.appendChild(card('مود مارا ديجي', [
     toggleRow('تفعيل المود', 'dj.enabled', djSettings.enabled === true),
     toggleRow('مزج تلقائي بين الأغاني', 'dj.autoMix', djSettings.autoMix !== false),
+    numberRow('تمكيس كل (دقيقة) — 0 يعني معطّل', 'dj.everyMin', djSettings.everyMin ?? 0, 0, 30, 0.5),
     numberRow('يبدأ المزج قبل النهاية بـ (ثانية)', 'dj.mixAtSec', djSettings.mixAtSec ?? 12, 2, 20, 1),
     numberRow('تجاوز بداية الأغنية القادمة (ثانية)', 'dj.skipIntroSec', djSettings.skipIntroSec ?? 0, 0, 30, 1),
     toggleRow('كنس ترددي عند الانتقال', 'dj.sweep', djSettings.sweep !== false),

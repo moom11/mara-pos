@@ -7,6 +7,7 @@ const { ALL_TRACKS_ID } = require('./playlists');
 const DJ_DEFAULTS = {
   enabled: false,
   autoMix: true,
+  everyMin: 0, // 0 = معطّل؛ وإلا أقصى مدة تُعزف من أي أغنية قبل الانتقال
   mixAtSec: 12,
   skipIntroSec: 0,
   sweep: true,
@@ -173,6 +174,7 @@ class Player extends EventEmitter {
     this.clearAutoPause({ silent: true });
     this.command('load', { id: this.state.currentId, url: stream.url, startAt: 0, autoplay: true });
     this.command('preload', { id: null, url: null, crossfadeSec: 0 }); // لا مزج مع البث
+    this.resetMixTimer(); // البث لا سقف زمني له
     this.publish();
     return true;
   }
@@ -305,6 +307,7 @@ class Player extends EventEmitter {
     this.library.markPlayed(id);
     this.command('load', { id, url: this.urlFor(id), startAt: 0, autoplay: true });
     this.schedulePreload();
+    this.resetMixTimer();
     this.publish();
     return true;
   }
@@ -318,6 +321,7 @@ class Player extends EventEmitter {
     this.state.status = 'playing';
     this.resumePlayback(400);
     if (!this.state.stream) this.schedulePreload();
+    this.resetMixTimer();
     this.publish();
     return true;
   }
@@ -325,6 +329,7 @@ class Player extends EventEmitter {
   pause() {
     this.state.status = 'paused';
     this.command('pause', { fadeMs: 400 });
+    this.resetMixTimer();
     this.publish();
     return true;
   }
@@ -337,6 +342,7 @@ class Player extends EventEmitter {
     this.state.status = 'stopped';
     this.state.position = 0;
     this.command('stop', {});
+    this.resetMixTimer();
     this.publish();
   }
 
@@ -499,6 +505,7 @@ class Player extends EventEmitter {
     if (typeof patch.sweep === 'boolean') this.dj.sweep = patch.sweep;
     if (typeof patch.echoOnMix === 'boolean') this.dj.echoOnMix = patch.echoOnMix;
     if (typeof patch.echo === 'boolean') this.dj.echo = patch.echo;
+    if (patch.everyMin !== undefined) this.dj.everyMin = clampRange(patch.everyMin, 0, 30, 0);
     if (patch.mixAtSec !== undefined) this.dj.mixAtSec = clampRange(patch.mixAtSec, 2, 20, 12);
     if (patch.skipIntroSec !== undefined) this.dj.skipIntroSec = clampRange(patch.skipIntroSec, 0, 30, 0);
     if (patch.dropBuildSec !== undefined) this.dj.dropBuildSec = clampRange(patch.dropBuildSec, 1, 12, 4);
@@ -514,9 +521,32 @@ class Player extends EventEmitter {
     for (const key of DJ_PERSISTED) persisted[key] = this.dj[key];
     this.settings.dj = persisted;
     this.command('dj', { config: this.dj });
+    this.resetMixTimer();
     this.emit('settings-changed');
     this.publish();
     return this.dj;
+  }
+
+  /**
+   * سقف زمني لكل أغنية: بعد `everyMin` دقيقة من بدايتها ينتقل حتمًا،
+   * فلا تُعزف أغنية طويلة كاملة. المؤقّت يُحسب من موضع التشغيل الحالي
+   * حتى يبقى صحيحًا بعد الإيقاف والاستئناف والتقديم.
+   */
+  resetMixTimer() {
+    if (this.mixTimer) {
+      clearTimeout(this.mixTimer);
+      this.mixTimer = null;
+    }
+    const minutes = Number(this.dj.everyMin) || 0;
+    if (!this.dj.enabled || minutes <= 0) return;
+    if (this.state.stream || this.state.status !== 'playing') return;
+
+    const remaining = minutes * 60000 - Math.max(0, this.state.position * 1000);
+    this.mixTimer = setTimeout(() => {
+      this.mixTimer = null;
+      this.djNext();
+    }, Math.max(1000, remaining));
+    if (this.mixTimer.unref) this.mixTimer.unref();
   }
 
   /** انتقال ممزوج بمؤثرات. يسقط تلقائيًا لانتقال عادي إن لم يكن المود مفعّلًا. */
@@ -698,6 +728,7 @@ class Player extends EventEmitter {
     this.state.status = 'playing';
     this.library.markPlayed(pending.id);
     this.schedulePreload();
+    this.resetMixTimer();
     this.publish();
   }
 

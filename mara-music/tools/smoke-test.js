@@ -480,6 +480,26 @@ async function main() {
   check('السقوط لانتقال عادي إذا تعذّر المزج', commands.filter((c) => c.type === 'load').length === loadsBeforeFallback + 1);
   check('التشغيل مستمر بعد تعذّر المزج', player.state.status === 'playing');
 
+  // سقف زمني لكل أغنية: مؤقّت يفرض الانتقال بعد المدة المحدّدة
+  check('التمكيس الزمني معطّل افتراضيًا', player.publicState().dj.everyMin === 0);
+  check('لا مؤقّت والقيمة صفر', !player.mixTimer);
+
+  player.playNow(tracks[0].id);
+  await call('/api/player/dj', { method: 'POST', body: { everyMin: 5 } });
+  check('ضبط التمكيس كل 5 دقائق', player.publicState().dj.everyMin === 5);
+  check('المؤقّت يعمل أثناء التشغيل', !!player.mixTimer);
+
+  player.pause();
+  check('المؤقّت يتوقف مع الإيقاف المؤقت', !player.mixTimer);
+  player.play();
+  check('المؤقّت يعود مع الاستئناف', !!player.mixTimer);
+
+  await call('/api/player/dj', { method: 'POST', body: { everyMin: 99 } });
+  check('حصر التمكيس داخل حدود آمنة', player.publicState().dj.everyMin === 30);
+
+  await call('/api/player/dj', { method: 'POST', body: { everyMin: 0 } });
+  check('تصفير المدة يلغي المؤقّت', !player.mixTimer);
+
   await call('/api/player/dj', { method: 'POST', body: { enabled: false } });
   check('إطفاء المود يصفّر الفلتر', player.publicState().dj.filter === 0);
   check('إطفاء المود يطفئ الصدى', player.publicState().dj.echo === false);
