@@ -97,6 +97,9 @@
       const wet = ctx.createGain();
       wet.gain.value = 0;
 
+      // ناقل الموسيقى منفصل عن ناقل المؤثرات: الخفض للعبارات يمسّ الموسيقى وحدها
+      const musicGain = ctx.createGain();
+      const fxGain = ctx.createGain();
       const master = ctx.createGain();
       const comp = ctx.createDynamicsCompressor();
       comp.threshold.value = -6;
@@ -107,18 +110,20 @@
 
       busIn.connect(hp);
       hp.connect(lp);
-      lp.connect(master);
+      lp.connect(musicGain);
 
       busIn.connect(delay);
       delay.connect(feedback);
       feedback.connect(delay);
       delay.connect(wet);
-      wet.connect(master);
+      wet.connect(musicGain); // الصدى جزء من الموسيقى، فيُخفَض معها
 
+      musicGain.connect(master);
+      fxGain.connect(master);
       master.connect(comp);
       comp.connect(ctx.destination);
 
-      nodes = { busIn, hp, lp, delay, feedback, wet, master, comp, per: new Map() };
+      nodes = { busIn, hp, lp, delay, feedback, wet, musicGain, fxGain, master, comp, per: new Map() };
       attachElement(A);
       attachElement(B);
       if (ctx.state === 'suspended') ctx.resume().catch(() => {});
@@ -240,6 +245,119 @@
 
   /** طول المزج في مود الديجي: يساوي لحظة البدء حتى تنتهي الخارجة بالضبط مع دخول التالية. */
   const djBlendMs = () => Math.max(2, Math.min(20, Number(dj.mixAtSec) || 12)) * 1000;
+
+  // ============================================================ مؤثرات مارا
+
+  const DUCK_LEVEL = 0.32; // مستوى الموسيقى أثناء العبارة الصوتية
+  const fxItems = new Map(); // id -> {url, kind, loop, gain, name}
+  const fxBuffers = new Map(); // id -> AudioBuffer
+  const fxActive = new Map(); // id -> {source, gain}
+  let duckCount = 0;
+  let preloading = false;
+
+  async function fetchBuffer(id) {
+    if (fxBuffers.has(id)) return fxBuffers.get(id);
+    const item = fxItems.get(id);
+    if (!item) return null;
+    const n = ensureGraph();
+    if (!n) return null;
+    const response = await fetch(item.url);
+    if (!response.ok) throw new Error(`تعذّر تحميل المؤثر (${response.status})`);
+    const bytes = await response.arrayBuffer();
+    const buffer = await ctx.decodeAudioData(bytes);
+    fxBuffers.set(id, buffer);
+    return buffer;
+  }
+
+  /** تحميل مسبق هادئ بالتسلسل — أول ضغطة على الزر تكون فورية. */
+  async function preloadFx() {
+    if (preloading) return;
+    preloading = true;
+    try {
+      for (const id of fxItems.keys()) {
+        if (fxBuffers.has(id)) continue;
+        try {
+          await fetchBuffer(id);
+        } catch (err) {
+          console.warn(`[fx] تعذّر تجهيز ${id}:`, err.message);
+        }
+      }
+    } finally {
+      preloading = false;
+    }
+  }
+
+  function setDuck(on) {
+    const n = ensureGraph();
+    if (!n) return;
+    duckCount = Math.max(0, duckCount + (on ? 1 : -1));
+    rampGain(n.musicGain.gain, duckCount > 0 ? DUCK_LEVEL : 1, duckCount > 0 ? 0.18 : 0.5);
+  }
+
+  async function playFx(id) {
+    const item = fxItems.get(id);
+    if (!item) return;
+    const n = ensureGraph();
+    if (!n) return;
+
+    // الضغط على مؤثر يعمل يوقفه — الزر مفتاح لا مشغّل متراكم
+    if (fxActive.has(id)) {
+      stopFx(id);
+      return;
+    }
+
+    let buffer;
+    try {
+      buffer = await fetchBuffer(id);
+    } catch (err) {
+      emit({ type: 'fx-error', id, message: err.message });
+      return;
+    }
+    if (!buffer || fxActive.has(id)) return;
+
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    source.loop = !!item.loop;
+    const gain = ctx.createGain();
+    gain.gain.value = 0;
+    source.connect(gain);
+    gain.connect(n.fxGain);
+
+    const ducks = item.kind === 'tag';
+    if (ducks) setDuck(true);
+
+    source.onended = () => {
+      if (fxActive.get(id) !== entry) return;
+      fxActive.delete(id);
+      if (ducks) setDuck(false);
+      try { gain.disconnect(); } catch (_) { /* تجاهل */ }
+      emit({ type: 'fx-ended', id });
+    };
+
+    const entry = { source, gain, ducks };
+    fxActive.set(id, entry);
+    source.start();
+    rampGain(gain.gain, item.gain, 0.05);
+    emit({ type: 'fx-started', id });
+  }
+
+  function stopFx(id) {
+    const entry = fxActive.get(id);
+    if (!entry) return;
+    fxActive.delete(id);
+    if (entry.ducks) setDuck(false);
+    rampGain(entry.gain.gain, 0, 0.25);
+    // إيقاف المصدر بعد التلاشي يمنع الطقطقة المسموعة عند القطع المفاجئ
+    setTimeout(() => {
+      try { entry.source.onended = null; entry.source.stop(); } catch (_) { /* تجاهل */ }
+      try { entry.gain.disconnect(); } catch (_) { /* تجاهل */ }
+    }, 280);
+    emit({ type: 'fx-ended', id });
+  }
+
+  function stopAllFx() {
+    for (const id of [...fxActive.keys()]) stopFx(id);
+  }
 
   // --------------------------------------------------------------- التلاشي
 
@@ -507,6 +625,7 @@
         case 'stop':
           intent = 'stopped';
           pauseSeq += 1;
+          stopAllFx();
           cancelFades();
           current.pause();
           standby.pause();
@@ -554,6 +673,32 @@
 
         case 'dj-drop':
           if (dj.enabled) drop(command.buildSec);
+          break;
+
+        // ------------------------------------------------ مؤثرات مارا
+
+        case 'fx-set': {
+          const items = Array.isArray(command.items) ? command.items : [];
+          const ids = new Set(items.map((item) => item.id));
+          // مؤثر حُذف من المكتبة يجب أن يتوقف ويُفرَّغ من الذاكرة
+          for (const id of [...fxActive.keys()]) if (!ids.has(id)) stopFx(id);
+          for (const id of [...fxBuffers.keys()]) if (!ids.has(id)) fxBuffers.delete(id);
+          fxItems.clear();
+          for (const item of items) fxItems.set(item.id, item);
+          if (items.length) preloadFx();
+          break;
+        }
+
+        case 'fx-play':
+          playFx(command.id);
+          break;
+
+        case 'fx-stop':
+          stopFx(command.id);
+          break;
+
+        case 'fx-stop-all':
+          stopAllFx();
           break;
 
         default:

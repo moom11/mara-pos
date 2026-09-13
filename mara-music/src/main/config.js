@@ -7,6 +7,8 @@ const { app } = require('electron');
 
 const DATA_DIR = path.join(app.getPath('userData'), 'data');
 const COVERS_DIR = path.join(DATA_DIR, 'covers');
+// مؤثرات الديجي — خارج مجلد الموسيقى عمدًا حتى لا يلتقطها فاحص المكتبة كأغانٍ
+const FX_DIR = path.join(DATA_DIR, 'fx');
 const LOG_DIR = path.join(app.getPath('userData'), 'logs');
 
 function defaultMusicDir() {
@@ -73,7 +75,7 @@ const DEFAULT_SETTINGS = {
 };
 
 function ensureDirs() {
-  for (const dir of [DATA_DIR, COVERS_DIR, LOG_DIR]) {
+  for (const dir of [DATA_DIR, COVERS_DIR, FX_DIR, LOG_DIR]) {
     fs.mkdirSync(dir, { recursive: true });
   }
 }
@@ -81,6 +83,7 @@ function ensureDirs() {
 module.exports = {
   DATA_DIR,
   COVERS_DIR,
+  FX_DIR,
   LOG_DIR,
   AUDIO_EXTENSIONS,
   DEFAULT_SETTINGS,

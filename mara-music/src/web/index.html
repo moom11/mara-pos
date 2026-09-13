@@ -104,6 +104,17 @@
             <div class="dj-filter-ends"><span>غائر</span><span>مشدود</span></div>
           </div>
 
+          <div class="dj-fx-pads" id="fx-block">
+            <div class="dj-filter-head">
+              <span>مؤثرات مارا</span>
+              <button class="link" id="fx-stop-all">إيقاف الكل</button>
+            </div>
+            <div class="pads" id="fx-pads"></div>
+            <p class="hint" id="fx-empty" hidden>
+              لا توجد مؤثرات بعد. أضفها من «الإعدادات ← مؤثرات مارا».
+            </p>
+          </div>
+
           <p class="hint">
             المزج التلقائي ينتقل قبل نهاية الأغنية بثوانٍ مع كنس ترددي وذيل صدى،
             فلا تسمع صمتًا بين الأغاني. الإعدادات الدقيقة في تبويب «الإعدادات».
@@ -197,6 +208,9 @@
       <button class="mini-btn" id="mini-play">▶</button>
       <button class="mini-btn" id="mini-next">⏭</button>
     </div>
+
+    <!-- مدخل رفع المؤثرات — يُستدعى من شاشة الإعدادات -->
+    <input type="file" id="fx-input" accept="audio/*,.wav,.mp3,.m4a,.ogg" multiple hidden />
 
     <!-- ------------------------------ التبويبات ------------------------- -->
     <nav class="tabs" id="tabs">

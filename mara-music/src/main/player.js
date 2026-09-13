@@ -23,11 +23,13 @@ const DJ_PERSISTED = Object.keys(DJ_DEFAULTS);
  * التشغيل الفعلي للصوت يتم في نافذة Electron (renderer) عبر أوامر يرسلها هذا الملف.
  */
 class Player extends EventEmitter {
-  constructor({ library, playlists, settings }) {
+  constructor({ library, playlists, settings, fx = null }) {
     super();
     this.library = library;
     this.playlists = playlists;
     this.settings = settings;
+    this.fx = fx;
+    this.activeFx = new Set();
 
     this.send = null; // تُضبط عند جاهزية نافذة المشغّل
     this.rendererReady = false;
@@ -110,13 +112,15 @@ class Player extends EventEmitter {
     console.log(`[player] استُعيدت الحالة: ${this.state.currentId || 'لا شيء'} @ ${Math.round(this.state.position)}s`);
   }
 
-  attachRenderer(sendFn, { streamBase, streamSuffix = '' }) {
+  attachRenderer(sendFn, { streamBase, streamSuffix = '', fxBase = '' }) {
     this.send = sendFn;
     this.streamBase = streamBase;
     this.streamSuffix = streamSuffix;
+    this.fxBase = fxBase;
     this.rendererReady = true;
     this.command('volume', { value: this.effectiveVolume(), fadeMs: 0 });
     this.command('dj', { config: this.dj, fadeMs: 0 });
+    this.pushFx();
     if (this.state.currentId) {
       this.command('load', {
         id: this.state.currentId,
@@ -530,6 +534,43 @@ class Player extends EventEmitter {
     return true;
   }
 
+  // ---------------------------------------------------------- مؤثرات مارا
+
+  /** يسلّم المحرّك قائمة المؤثرات ليجهّزها في الذاكرة قبل أول ضغطة. */
+  pushFx() {
+    if (!this.fx) return;
+    this.command('fx-set', {
+      items: this.fx.list().map((item) => ({
+        id: item.id,
+        name: item.name,
+        kind: item.kind,
+        loop: item.loop,
+        gain: item.gain,
+        url: `${this.fxBase}${item.id}/audio${this.streamSuffix || ''}`
+      }))
+    });
+  }
+
+  playFx(id) {
+    if (!this.fx || !this.fx.get(id)) return false;
+    this.command('fx-play', { id });
+    return true;
+  }
+
+  stopFx(id) {
+    this.command('fx-stop', { id });
+    return true;
+  }
+
+  stopAllFx() {
+    this.command('fx-stop-all', {});
+    if (this.activeFx.size) {
+      this.activeFx.clear();
+      this.publish();
+    }
+    return true;
+  }
+
   // ------------------------------------------------------- الإيقاف التلقائي
 
   /** إيقاف/خفض تلقائي (الصلاة أو الجدولة). */
@@ -597,6 +638,19 @@ class Player extends EventEmitter {
         } else {
           this.next({ manual: false });
         }
+        break;
+      }
+      case 'fx-started': {
+        if (event.id && !this.activeFx.has(event.id)) {
+          this.activeFx.add(event.id);
+          this.publish();
+        }
+        break;
+      }
+      case 'fx-ended':
+      case 'fx-error': {
+        if (event.message) console.warn(`[fx] ${event.id}: ${event.message}`);
+        if (event.id && this.activeFx.delete(event.id)) this.publish();
         break;
       }
       case 'dj-mix-failed': {
@@ -753,6 +807,7 @@ class Player extends EventEmitter {
       repeat: this.state.repeat,
       source: { id: this.state.sourceId, name: this.state.sourceName },
       dj: { ...this.dj },
+      activeFx: [...this.activeFx],
       queue: this.state.queue.map((id) => {
         const t = this.library.get(id);
         return t ? publicTrack(t) : { id, title: 'ملف مفقود', missing: true };

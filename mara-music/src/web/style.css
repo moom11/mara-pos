@@ -299,6 +299,32 @@ input[type=range]::-moz-range-thumb { width: 20px; height: 20px; border: none; b
 }
 .dj-chip.on { border-color: var(--accent); color: var(--accent); }
 
+.dj-fx-pads { margin-top: 16px; }
+.pads {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+.pad {
+  padding: 14px 8px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  font-size: 13.5px;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pad .pad-kind { display: block; font-size: 11px; color: var(--muted); margin-top: 3px; }
+.pad.on {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+.pad.on .pad-kind { color: var(--accent-ink); opacity: 0.75; }
+
 .dj-filter { margin-top: 16px; }
 .dj-filter-head,
 .dj-filter-ends {
@@ -504,6 +530,13 @@ input[type=range]::-moz-range-thumb { width: 20px; height: 20px; border: none; b
   background: var(--panel-2);
   font-size: 14.5px;
 }
+
+/* صف المؤثر: أزرار متجاورة بدل زر واحد بعرض الصف */
+.fx-row { flex-wrap: wrap; }
+.fx-row label { min-width: 100%; margin-bottom: 6px; }
+.fx-row .row-btn { width: auto; flex: 1; padding: 9px 10px; font-size: 13px; }
+.row-btn.on { border-color: var(--accent); color: var(--accent); }
+.row-btn.danger { color: var(--danger); }
 
 input.switch {
   appearance: none;

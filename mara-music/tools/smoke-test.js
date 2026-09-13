@@ -37,6 +37,8 @@ const { deepMerge } = require('../src/main/store');
 const { Library } = require('../src/main/library');
 const { Playlists, ALL_TRACKS_ID } = require('../src/main/playlists');
 const { Player } = require('../src/main/player');
+const { FxLibrary } = require('../src/main/fx');
+const { FX_DIR } = require('../src/main/config');
 const { Scheduler } = require('../src/main/scheduler');
 const { Auth } = require('../src/main/auth');
 const { createServer } = require('../src/main/server');
@@ -55,6 +57,28 @@ function check(name, condition, detail) {
     failures.push(name);
     console.log(`  ❌ ${name}${detail ? ` — ${detail}` : ''}`);
   }
+}
+
+/** ملف WAV صامت صالح — للمؤثرات في الاختبار. */
+function makeWav(seconds) {
+  const rate = 44100;
+  const samples = Math.max(1, Math.round(rate * seconds));
+  const data = Buffer.alloc(samples * 2); // 16-bit أحادي، صمت
+  const header = Buffer.alloc(44);
+  header.write('RIFF', 0);
+  header.writeUInt32LE(36 + data.length, 4);
+  header.write('WAVE', 8);
+  header.write('fmt ', 12);
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20); // PCM
+  header.writeUInt16LE(1, 22); // قناة واحدة
+  header.writeUInt32LE(rate, 24);
+  header.writeUInt32LE(rate * 2, 28);
+  header.writeUInt16LE(2, 32);
+  header.writeUInt16LE(16, 34);
+  header.write('data', 36);
+  header.writeUInt32LE(data.length, 40);
+  return Buffer.concat([header, data]);
 }
 
 function section(title) {
@@ -81,7 +105,9 @@ async function main() {
   const playlists = new Playlists(library);
   playlists.load();
   const auth = new Auth(() => settings);
-  const player = new Player({ library, playlists, settings });
+  const fx = new FxLibrary();
+  fx.load();
+  const player = new Player({ library, playlists, settings, fx });
   const scheduler = new Scheduler({ player, playlists, getSettings: () => settings });
 
   const server = createServer({
@@ -90,6 +116,7 @@ async function main() {
     playlists,
     auth,
     scheduler,
+    fx,
     settings: () => settings,
     saveSettings: () => {},
     appInfo: { version: '1.0.0-test' }
@@ -116,7 +143,11 @@ async function main() {
         fake.playing = false;
       }
     },
-    { streamBase: `${base}/api/stream/`, streamSuffix: `?t=${auth.internalToken}` }
+    {
+      streamBase: `${base}/api/stream/`,
+      streamSuffix: `?t=${auth.internalToken}`,
+      fxBase: `${base}/api/fx/`
+    }
   );
 
   /** يحاكي انتهاء الأغنية الحالية طبيعيًا. */
@@ -352,6 +383,64 @@ async function main() {
   player.setVolume(0.6);
 
   // ==================================================== 6د) البث المباشر
+
+  section('مؤثرات مارا');
+
+  check('لا مؤثرات عند البداية', fx.list().length === 0);
+
+  // ملف يُلقى في المجلد يدويًا يجب أن يُلتقط بلا رفع
+  fs.writeFileSync(path.join(FX_DIR, 'Mara_Tag_01.wav'), makeWav(0.4));
+  fs.writeFileSync(path.join(FX_DIR, 'House_Loop_125.wav'), makeWav(0.8));
+  fx.load();
+  check('التقاط الملفات الملقاة في المجلد يدويًا', fx.list().length === 2);
+  check('اشتقاق اسم مقروء من اسم الملف', fx.list().some((i) => i.name === 'Mara Tag 01'));
+  check('التكرار مطفأ افتراضيًا', fx.list().every((i) => i.loop === false));
+
+  // الحارس الأهم: مجلد المؤثرات منفصل عن الموسيقى
+  await library.scan({ full: false });
+  const fxIds = new Set(fx.list().map((i) => i.id));
+  check('المؤثرات لا تظهر كأغانٍ في المكتبة',
+    ![...library.tracks.values()].some((t) => t.path.includes(`${path.sep}fx${path.sep}`)));
+  check('مجلد المؤثرات خارج مجلد الموسيقى', !FX_DIR.startsWith(MUSIC_DIR));
+
+  const fxList = await call('/api/fx');
+  check('قائمة المؤثرات عبر الواجهة', fxList.status === 200 && fxList.data.items.length === 2);
+  const tag = fxList.data.items.find((i) => i.name === 'Mara Tag 01');
+
+  const fxAudio = await fetch(`${base}/api/fx/${tag.id}/audio?t=${token}`);
+  check('تحميل ملف المؤثر', fxAudio.status === 200);
+  const fxNoAuth = await fetch(`${base}/api/fx/${tag.id}/audio`);
+  check('رفض تحميل المؤثر بلا رمز', fxNoAuth.status === 401);
+
+  const staffFx = await call('/api/player/fx-play', { method: 'POST', body: { fxId: tag.id }, tokenOverride: staffToken });
+  check('منع الموظف من تشغيل المؤثرات', staffFx.status === 403);
+
+  const missingFx = await call('/api/player/fx-play', { method: 'POST', body: { fxId: 'لا-يوجد' } });
+  check('رفض مؤثر غير موجود', missingFx.status === 404);
+
+  const playFx = await call('/api/player/fx-play', { method: 'POST', body: { fxId: tag.id } });
+  check('تشغيل المؤثر', playFx.status === 200 && commands.filter((c) => c.type === 'fx-play').pop().id === tag.id);
+
+  player.onRendererEvent({ type: 'fx-started', id: tag.id });
+  check('الحالة تعرض المؤثر العامل', player.publicState().activeFx.includes(tag.id));
+  player.onRendererEvent({ type: 'fx-ended', id: tag.id });
+  check('الحالة تنظّف المؤثر بعد انتهائه', !player.publicState().activeFx.includes(tag.id));
+
+  const asTag = await call(`/api/fx/${tag.id}`, { method: 'PATCH', body: { kind: 'tag', loop: true } });
+  check('تحويل المؤثر إلى عبارة', asTag.status === 200 && asTag.data.kind === 'tag' && asTag.data.loop === true);
+  check('المحرّك يتسلّم القائمة المحدّثة', commands.filter((c) => c.type === 'fx-set').pop().items.some((i) => i.kind === 'tag'));
+  check('رابط المؤثر يشير لمسار الصوت', commands.filter((c) => c.type === 'fx-set').pop().items[0].url.includes('/audio?t='));
+
+  const badPatch = await call(`/api/fx/${tag.id}`, { method: 'PATCH', body: { kind: 'خطأ', gain: 99 } });
+  check('رفض نوع غير معروف وحصر مستوى الصوت', badPatch.data.kind === 'tag' && badPatch.data.gain <= 1);
+
+  const staffDelete = await call(`/api/fx/${tag.id}`, { method: 'DELETE', tokenOverride: staffToken });
+  check('منع الموظف من حذف المؤثرات', staffDelete.status === 403);
+
+  const delFx = await call(`/api/fx/${tag.id}`, { method: 'DELETE' });
+  check('حذف المؤثر', delFx.status === 200 && fx.list().length === 1);
+  check('حُذف الملف من القرص فعلًا', !fs.existsSync(path.join(FX_DIR, 'Mara_Tag_01.wav')));
+  check('المعرّف ثابت مشتق من اسم الملف', fxIds.has(fx.list()[0].id));
 
   section('مود الديجي');
 

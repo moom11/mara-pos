@@ -8,6 +8,7 @@ const { ensureDirs, DEFAULT_SETTINGS, defaultMusicDir, LOG_DIR } = require('./co
 const { readJSON, writeJSON, deepMerge } = require('./store');
 const { Library } = require('./library');
 const { Playlists, ALL_TRACKS_ID } = require('./playlists');
+const { FxLibrary } = require('./fx');
 const { Player } = require('./player');
 const { Scheduler } = require('./scheduler');
 const { Auth } = require('./auth');
@@ -18,6 +19,7 @@ const isDev = process.argv.includes('--dev');
 let settings = null;
 let library = null;
 let playlists = null;
+let fx = null;
 let player = null;
 let scheduler = null;
 let auth = null;
@@ -265,7 +267,10 @@ async function boot() {
   auth = new Auth(() => settings);
   auth.load();
 
-  player = new Player({ library, playlists, settings });
+  fx = new FxLibrary();
+  fx.load();
+
+  player = new Player({ library, playlists, settings, fx });
   player.restore();
   player.on('settings-changed', saveSettings);
 
@@ -282,6 +287,7 @@ async function boot() {
     playlists,
     auth,
     scheduler,
+    fx,
     settings: () => settings,
     saveSettings,
     appInfo: { version: app.getVersion() },
@@ -334,7 +340,8 @@ async function boot() {
       },
       {
         streamBase: `http://127.0.0.1:${port}/api/stream/`,
-        streamSuffix: `?t=${auth.internalToken}`
+        streamSuffix: `?t=${auth.internalToken}`,
+        fxBase: `http://127.0.0.1:${port}/api/fx/`
       }
     );
     pushScreen(port);

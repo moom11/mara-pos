@@ -26,6 +26,7 @@ const app = {
   settings: null,
   playlists: [],
   streams: [],
+  fx: [],
   ws: null,
   wsRetry: 0,
   view: 'now',
@@ -143,7 +144,7 @@ async function start() {
   document.body.classList.toggle('is-admin', app.role === 'admin');
 
   connectSocket();
-  await Promise.all([refreshState(), loadPlaylists(), loadStreams()]);
+  await Promise.all([refreshState(), loadPlaylists(), loadStreams(), loadFx()]);
   loadLibrary(true);
   switchView(app.view);
 }
@@ -178,6 +179,7 @@ function connectSocket() {
     else if (msg.type === 'library') loadLibrary(true);
     else if (msg.type === 'playlists') loadPlaylists();
     else if (msg.type === 'streams') loadStreams();
+    else if (msg.type === 'fx') loadFx();
     else if (msg.type === 'revoked') logout(true);
   };
   ws.onclose = (e) => {
@@ -348,10 +350,42 @@ function renderDj() {
   $('dj-panel').hidden = !dj.enabled;
   $('dj-echo').classList.toggle('on', !!dj.echo);
   $('dj-automix').classList.toggle('on', !!dj.autoMix);
+  renderFxPads();
   if (!app.djDragging) {
     $('dj-filter').value = dj.filter || 0;
     $('dj-filter-value').textContent = filterLabel(dj.filter || 0);
   }
+}
+
+async function loadFx() {
+  if (app.role !== 'admin') return;
+  try {
+    const data = await api('/api/fx');
+    app.fx = data.items || [];
+  } catch (_) {
+    app.fx = [];
+  }
+  renderFxPads();
+}
+
+function renderFxPads() {
+  const box = $('fx-pads');
+  const signature = app.fx.map((item) => `${item.id}:${item.name}:${item.kind}:${item.loop}`).join('|');
+  if (signature !== app.fxSignature) {
+    app.fxSignature = signature;
+    box.innerHTML = '';
+    for (const item of app.fx) {
+      const btn = el('button', 'pad');
+      btn.appendChild(document.createTextNode(item.name));
+      btn.appendChild(el('span', 'pad-kind', item.kind === 'tag' ? 'عبارة' : item.loop ? 'إيقاع ↻' : 'إيقاع'));
+      btn.dataset.fx = item.id;
+      btn.onclick = () => cmd('fx-play', { fxId: item.id }).catch((e) => toast(e.message));
+      box.appendChild(btn);
+    }
+    $('fx-empty').hidden = app.fx.length > 0;
+  }
+  const active = new Set((app.state && app.state.activeFx) || []);
+  for (const btn of box.children) btn.classList.toggle('on', active.has(btn.dataset.fx));
 }
 
 function filterLabel(value) {
@@ -748,6 +782,27 @@ async function uploadFiles(files) {
   }
 }
 
+async function uploadFx(files) {
+  if (!files.length) return;
+  const form = new FormData();
+  for (const file of files) form.append('files', file);
+  toast(`جارٍ رفع ${files.length} مؤثرًا…`);
+  try {
+    const res = await fetch('/api/fx', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${store.token}` },
+      body: form
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'فشل الرفع');
+    toast(`أُضيف ${data.added.length} مؤثرًا`);
+    await loadFx();
+    renderSettings();
+  } catch (err) {
+    toast(`تعذّر الرفع: ${err.message}`);
+  }
+}
+
 function uploadBatch(batch, onProgress) {
   return new Promise((resolve, reject) => {
     const form = new FormData();
@@ -809,6 +864,9 @@ async function renderSettings() {
     numberRow('مدة الشدّ قبل الدروب (ثانية)', 'dj.dropBuildSec', djSettings.dropBuildSec ?? 4, 1, 12, 1)
   ]));
 
+  // --- مؤثرات مارا
+  body.appendChild(fxCard());
+
   // --- الصلاة
   const prayerRows = [
     toggleRow('تفعيل الإيقاف التلقائي وقت الصلاة', 'prayer.enabled', settings.prayer.enabled),
@@ -866,6 +924,62 @@ async function renderSettings() {
   const save = el('button', 'wide-btn save', 'حفظ الإعدادات');
   save.onclick = saveSettings;
   body.appendChild(save);
+}
+
+/**
+ * إدارة المؤثرات. تغييراتها تُحفظ فورًا عند الضغط، لا مع زر «حفظ الإعدادات»،
+ * لأنها ملفات لا حقول — لهذا لا تحمل data-key.
+ */
+function fxCard() {
+  const box = el('section', 'card');
+  box.appendChild(el('h4', null, 'مؤثرات مارا'));
+
+  const patchFx = async (id, patch) => {
+    try {
+      await api(`/api/fx/${id}`, { method: 'PATCH', body: patch });
+      await loadFx();
+      renderSettings();
+    } catch (err) {
+      toast(err.message);
+    }
+  };
+
+  for (const item of app.fx) {
+    const r = el('div', 'row fx-row');
+    r.appendChild(el('label', null, item.name));
+
+    const kind = el('button', 'row-btn', item.kind === 'tag' ? 'عبارة' : 'إيقاع');
+    kind.onclick = () => patchFx(item.id, { kind: item.kind === 'tag' ? 'pad' : 'tag' });
+
+    const loop = el('button', `row-btn${item.loop ? ' on' : ''}`, item.loop ? 'تكرار ✓' : 'تكرار');
+    loop.onclick = () => patchFx(item.id, { loop: !item.loop });
+
+    const del = el('button', 'row-btn danger', 'حذف');
+    del.onclick = async () => {
+      if (!confirm(`حذف المؤثر "${item.name}"؟`)) return;
+      try {
+        await api(`/api/fx/${item.id}`, { method: 'DELETE' });
+        await loadFx();
+        renderSettings();
+      } catch (err) {
+        toast(err.message);
+      }
+    };
+
+    for (const btn of [kind, loop, del]) r.appendChild(btn);
+    box.appendChild(r);
+  }
+
+  if (!app.fx.length) {
+    box.appendChild(el('p', 'hint', 'لا توجد مؤثرات بعد.'));
+  }
+
+  box.appendChild(buttonRow('إضافة مؤثرات…', () => $('fx-input').click()));
+  box.appendChild(el('p', 'hint',
+    'مقاطع قصيرة تملك حق استخدامها: عبارة بصوتك، أو إيقاع. '
+    + '«عبارة» تخفض الموسيقى أثناءها ثم تعيدها، و«إيقاع» يُسمع فوقها. '
+    + 'تظهر كأزرار في لوحة الديجي.'));
+  return box;
 }
 
 function card(title, rows) {
@@ -1221,6 +1335,11 @@ function wireEvents() {
   $('dj-drop').onclick = () => cmd('dj-drop').catch((e) => toast(e.message));
   $('dj-echo').onclick = () => dj({ echo: !(app.state && app.state.dj && app.state.dj.echo) });
   $('dj-automix').onclick = () => dj({ autoMix: !(app.state && app.state.dj && app.state.dj.autoMix) });
+  $('fx-stop-all').onclick = () => cmd('fx-stop-all').catch((e) => toast(e.message));
+  $('fx-input').addEventListener('change', (e) => {
+    uploadFx([...e.target.files]);
+    e.target.value = '';
+  });
   $('dj-reset').onclick = () => {
     $('dj-filter').value = 0;
     $('dj-filter-value').textContent = filterLabel(0);

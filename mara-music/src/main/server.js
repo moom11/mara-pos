@@ -9,7 +9,7 @@ const express = require('express');
 const multer = require('multer');
 const { WebSocketServer } = require('ws');
 
-const { COVERS_DIR, AUDIO_EXTENSIONS } = require('./config');
+const { COVERS_DIR, FX_DIR, AUDIO_EXTENSIONS } = require('./config');
 const { Scheduler } = require('./scheduler');
 const { ALL_TRACKS_ID } = require('./playlists');
 
@@ -28,7 +28,7 @@ const MIME_BY_EXT = {
 };
 
 function createServer(ctx) {
-  const { player, library, playlists, auth, scheduler, settings, saveSettings, appInfo } = ctx;
+  const { player, library, playlists, auth, scheduler, settings, saveSettings, appInfo, fx } = ctx;
   const app = express();
   app.disable('x-powered-by');
   app.use(express.json({ limit: '1mb' }));
@@ -185,6 +185,15 @@ function createServer(ctx) {
         break;
       case 'dj-drop':
         if (!player.djDrop()) return res.status(400).json({ error: 'فعّل مود الديجي أولًا' });
+        break;
+      case 'fx-play':
+        if (!player.playFx(String(req.body?.fxId))) return res.status(404).json({ error: 'المؤثر غير موجود' });
+        break;
+      case 'fx-stop':
+        player.stopFx(String(req.body?.fxId));
+        break;
+      case 'fx-stop-all':
+        player.stopAllFx();
         break;
       default:
         return res.status(400).json({ error: 'أمر غير معروف' });
@@ -420,6 +429,63 @@ function createServer(ctx) {
     if (s.streams.length === before) return res.status(404).json({ error: 'رابط البث غير موجود' });
     saveSettings();
     broadcast({ type: 'streams' });
+    res.json({ ok: true });
+  });
+
+  // ------------------------------------------------------- مؤثرات مارا
+
+  const fxUpload = multer({
+    storage: multer.diskStorage({
+      destination: (_req, _file, cb) => {
+        fs.mkdirSync(FX_DIR, { recursive: true });
+        cb(null, FX_DIR);
+      },
+      filename: (_req, file, cb) => {
+        const original = Buffer.from(file.originalname, 'latin1').toString('utf8');
+        cb(null, uniqueName(FX_DIR, sanitize(original)));
+      }
+    }),
+    // المؤثرات مقاطع قصيرة — الحدّ المنخفض يمنع رفع أغنية كاملة هنا بالخطأ
+    limits: { fileSize: 12 * 1024 * 1024, files: 12 },
+    fileFilter: (_req, file, cb) => {
+      const ext = path.extname(file.originalname).toLowerCase();
+      cb(null, AUDIO_EXTENSIONS.has(ext));
+    }
+  });
+
+  app.get('/api/fx', requireAuth, (_req, res) => res.json({ items: fx ? fx.list() : [] }));
+
+  app.get('/api/fx/:id/audio', requireAuth, (req, res) => {
+    const file = fx && fx.pathOf(req.params.id);
+    if (!file || !fs.existsSync(file)) return res.status(404).json({ error: 'المؤثر غير موجود' });
+    res.setHeader('Content-Type', MIME_BY_EXT[path.extname(file).toLowerCase()] || 'application/octet-stream');
+    res.setHeader('Cache-Control', 'no-store');
+    fs.createReadStream(file).pipe(res);
+  });
+
+  app.post('/api/fx', requireAdmin, fxUpload.array('files', 12), (req, res) => {
+    if (!fx) return res.status(500).json({ error: 'المؤثرات غير مهيّأة' });
+    const files = req.files || [];
+    if (!files.length) return res.status(400).json({ error: 'لم يتم رفع أي ملف صوتي صالح' });
+    const added = files.map((file) => fx.register(path.basename(file.path)));
+    player.pushFx();
+    broadcast({ type: 'fx' });
+    res.json({ ok: true, added });
+  });
+
+  app.patch('/api/fx/:id', requireAdmin, (req, res) => {
+    const item = fx && fx.update(req.params.id, req.body || {});
+    if (!item) return res.status(404).json({ error: 'المؤثر غير موجود' });
+    player.pushFx();
+    broadcast({ type: 'fx' });
+    res.json(item);
+  });
+
+  app.delete('/api/fx/:id', requireAdmin, (req, res) => {
+    if (!fx || !fx.remove(req.params.id)) return res.status(404).json({ error: 'المؤثر غير موجود' });
+    player.stopFx(req.params.id);
+    player.pushFx();
+    broadcast({ type: 'fx' });
     res.json({ ok: true });
   });
 
