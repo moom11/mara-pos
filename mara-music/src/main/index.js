@@ -9,6 +9,7 @@ const { readJSON, writeJSON, deepMerge } = require('./store');
 const { Library } = require('./library');
 const { Playlists, ALL_TRACKS_ID } = require('./playlists');
 const { FxLibrary } = require('./fx');
+const { License } = require('./license');
 const { Player } = require('./player');
 const { Scheduler } = require('./scheduler');
 const { Auth } = require('./auth');
@@ -20,6 +21,7 @@ let settings = null;
 let library = null;
 let playlists = null;
 let fx = null;
+let license = null;
 let player = null;
 let scheduler = null;
 let auth = null;
@@ -270,8 +272,13 @@ async function boot() {
   fx = new FxLibrary();
   fx.load();
 
+  license = new License();
+  license.load();
+
   player = new Player({ library, playlists, settings, fx });
   player.restore();
+  // بلا ترخيص لا استئناف تلقائي — وإلا عاد التشغيل مع كل إقلاع رغم المنع
+  if (!license.allowsPlayback()) player.resumeOnBoot = false;
   player.on('settings-changed', saveSettings);
 
   scheduler = new Scheduler({
@@ -288,6 +295,7 @@ async function boot() {
     auth,
     scheduler,
     fx,
+    license,
     settings: () => settings,
     saveSettings,
     appInfo: { version: app.getVersion() },
@@ -329,6 +337,21 @@ async function boot() {
   if (screenTimer.unref) screenTimer.unref();
   const trayTimer = setInterval(() => refreshTrayMenu(port), 15000);
   if (trayTimer.unref) trayTimer.unref();
+
+  // انتهاء الفترة التجريبية أثناء العمل: نفحص دوريًا وإلا استمر التشغيل
+  // إلى ما لا نهاية ما دام البرنامج لم يُغلق.
+  let lastAllowed = license.allowsPlayback();
+  const licenseTimer = setInterval(() => {
+    const allowed = license.allowsPlayback();
+    if (allowed === lastAllowed) return;
+    lastAllowed = allowed;
+    if (!allowed) {
+      console.warn('[license] سقط الترخيص — إيقاف التشغيل');
+      player.stop();
+    }
+    server.broadcast({ type: 'license' });
+  }, 30 * 60 * 1000);
+  if (licenseTimer.unref) licenseTimer.unref();
 
   // ------------------------------------------------------------- IPC
 

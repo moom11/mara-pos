@@ -245,6 +245,40 @@ input[type=range]::-moz-range-thumb { width: 20px; height: 20px; border: none; b
 .vol-icon { font-size: 20px; }
 .vol-value { color: var(--muted); font-size: 13px; min-width: 42px; text-align: left; font-variant-numeric: tabular-nums; }
 
+/* -------------------------------------------------------------- التفعيل */
+
+.login-box.wide { max-width: 420px; }
+.license-code-label { color: var(--muted); font-size: 12.5px; margin-top: 18px; }
+.license-code {
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 21px;
+  letter-spacing: 2px;
+  direction: ltr;
+  color: var(--accent);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 13px 8px;
+  margin: 6px 0 4px;
+  user-select: all; /* ضغطة واحدة تحدّد الرمز كاملًا للنسخ */
+}
+.sub.small { font-size: 12px; }
+#license-token {
+  width: 100%;
+  margin-top: 14px;
+  padding: 11px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--text);
+  direction: ltr;
+  text-align: left;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px;
+  resize: vertical;
+}
+.banner.trial { background: var(--panel-2); border-color: var(--accent); color: var(--accent); }
+
 /* ------------------------------------------------------------ مود الديجي */
 
 .dj { margin-bottom: 18px; }

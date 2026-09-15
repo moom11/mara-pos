@@ -27,6 +27,7 @@ const app = {
   playlists: [],
   streams: [],
   fx: [],
+  license: null,
   ws: null,
   wsRetry: 0,
   view: 'now',
@@ -121,6 +122,7 @@ function logout(silent) {
     try { app.ws.close(); } catch (_) { /* تجاهل */ }
   }
   $('app').hidden = true;
+  $('view-license').hidden = true;
   $('view-login').hidden = false;
   paintPin();
 }
@@ -140,13 +142,75 @@ async function start() {
   }
 
   $('view-login').hidden = true;
+
+  // الترخيص يُفحص قبل عرض التطبيق — لا معنى لواجهة تحكّم لا تشغّل شيئًا
+  app.license = me.license || { state: 'off', allowed: true };
+  if (!app.license.allowed) {
+    showLicenseScreen(app.license);
+    return;
+  }
+  $('view-license').hidden = true;
   $('app').hidden = false;
+  renderTrialBanner();
   document.body.classList.toggle('is-admin', app.role === 'admin');
 
   connectSocket();
   await Promise.all([refreshState(), loadPlaylists(), loadStreams(), loadFx()]);
   loadLibrary(true);
   switchView(app.view);
+}
+
+// ================================================================ الترخيص
+
+const LICENSE_REASONS = {
+  expired: 'انتهت الفترة التجريبية. فعّل الترخيص لمتابعة التشغيل.',
+  invalid: 'الترخيص المحفوظ غير صالح على هذا الجهاز.',
+  none: 'هذه النسخة تحتاج ترخيصًا لتعمل على هذا الجهاز.'
+};
+
+function showLicenseScreen(status) {
+  $('app').hidden = true;
+  $('view-license').hidden = false;
+  $('license-code').textContent = status.code || '—';
+  $('license-reason').textContent =
+    LICENSE_REASONS[status.state] || status.error || LICENSE_REASONS.none;
+}
+
+function renderTrialBanner() {
+  const banner = $('trial-banner');
+  const status = app.license;
+  const isTrial = status && status.state === 'trial';
+  banner.hidden = !isTrial;
+  if (isTrial) {
+    banner.textContent = `نسخة تجريبية — بقي ${status.daysLeft} يومًا. رمز الجهاز: ${status.code}`;
+  }
+}
+
+async function activateLicense() {
+  const token = $('license-token').value.trim();
+  const box = $('license-error');
+  if (!token) {
+    box.textContent = 'الصق الترخيص أولًا';
+    return;
+  }
+  box.textContent = 'جارٍ التحقق…';
+  try {
+    await api('/api/license', { method: 'POST', body: { token } });
+    box.textContent = '';
+    $('license-token').value = '';
+    await start();
+  } catch (err) {
+    box.textContent = err.message;
+  }
+}
+
+async function refreshLicense() {
+  try {
+    const status = await api('/api/license');
+    app.license = status;
+    if (!status.allowed) showLicenseScreen(status);
+    else renderTrialBanner();
+  } catch (_) { /* تجاهل */ }
 }
 
 async function refreshState() {
@@ -180,6 +244,7 @@ function connectSocket() {
     else if (msg.type === 'playlists') loadPlaylists();
     else if (msg.type === 'streams') loadStreams();
     else if (msg.type === 'fx') loadFx();
+    else if (msg.type === 'license') refreshLicense();
     else if (msg.type === 'revoked') logout(true);
   };
   ws.onclose = (e) => {
@@ -1326,6 +1391,8 @@ function wireEvents() {
   };
   $('btn-mute').onclick = () => cmd('mute', { muted: !(app.state && app.state.muted) }).catch(() => {});
   $('btn-logout').onclick = () => logout();
+  $('license-activate').onclick = activateLicense;
+  $('license-logout').onclick = () => logout();
 
   // شريط التشغيل المصغّر
   $('mini-play').onclick = () => cmd('toggle').catch((e) => toast(e.message));

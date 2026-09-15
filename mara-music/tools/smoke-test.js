@@ -38,6 +38,7 @@ const { Library } = require('../src/main/library');
 const { Playlists, ALL_TRACKS_ID } = require('../src/main/playlists');
 const { Player } = require('../src/main/player');
 const { FxLibrary } = require('../src/main/fx');
+const { License } = require('../src/main/license');
 const { FX_DIR } = require('../src/main/config');
 const { Scheduler } = require('../src/main/scheduler');
 const { Auth } = require('../src/main/auth');
@@ -107,6 +108,9 @@ async function main() {
   const auth = new Auth(() => settings);
   const fx = new FxLibrary();
   fx.load();
+  // بصمة ثابتة حتى لا تتغيّر نتائج الاختبار بتغيّر جهاز التشغيل
+  const licence = new License({ fingerprint: 'a1b2c3d4e5f67890', publicKey: '' });
+  licence.load();
   const player = new Player({ library, playlists, settings, fx });
   const scheduler = new Scheduler({ player, playlists, getSettings: () => settings });
 
@@ -117,6 +121,7 @@ async function main() {
     auth,
     scheduler,
     fx,
+    license: licence,
     settings: () => settings,
     saveSettings: () => {},
     appInfo: { version: '1.0.0-test' }
@@ -780,6 +785,95 @@ async function main() {
   check('استئناف التشغيل تلقائيًا بعد إعادة التشغيل', restored.resumeOnBoot === true);
 
   // ==================================================== 12) الواجهة
+
+  section('الترخيص وحماية النسخ');
+
+  const nodeCrypto = require('crypto');
+  const vendor = nodeCrypto.generateKeyPairSync('ed25519');
+  const vendorPublic = vendor.publicKey.export({ type: 'spki', format: 'pem' });
+  const signLicense = (payload) => {
+    const body = Buffer.from(JSON.stringify(payload), 'utf8');
+    const sig = nodeCrypto.sign(null, body, vendor.privateKey);
+    return `${body.toString('base64url')}.${sig.toString('base64url')}`;
+  };
+
+  check('نظام التراخيص مطفأ بلا مفتاح بائع', licence.status().state === 'off' && licence.allowsPlayback());
+  check('رمز الجهاز أربع مجموعات رباعية', /^[0-9A-F]{4}(-[0-9A-F]{4}){3}$/.test(licence.displayCode));
+
+  // تفعيل الحماية
+  licence.publicKey = vendorPublic;
+  check('الحماية تُفعَّل بوجود المفتاح', licence.status().enforced === true);
+  check('بلا ترخيص يبدأ وضع التجربة', licence.status().state === 'trial' && licence.allowsPlayback());
+
+  // انتهاء التجربة
+  licence.data.firstRunAt = Date.now() - 40 * 86400000;
+  check('انتهاء التجربة يمنع التشغيل', licence.status().state === 'expired' && !licence.allowsPlayback());
+
+  const blockedPlay = await call('/api/player/play', { method: 'POST' });
+  check('منع التشغيل بلا ترخيص', blockedPlay.status === 402);
+  check('رسالة المنع تحمل حالة الترخيص', blockedPlay.data.license.state === 'expired');
+  const blockedNext = await call('/api/player/next', { method: 'POST' });
+  check('منع الانتقال بلا ترخيص', blockedNext.status === 402);
+  const stillPause = await call('/api/player/pause', { method: 'POST' });
+  check('الإيقاف يبقى مسموحًا لإسكات الموسيقى', stillPause.status === 200);
+
+  // ترخيص لجهاز آخر
+  const foreign = await call('/api/license', {
+    method: 'POST',
+    body: { token: signLicense({ fp: 'ffffffffffffffff', customer: 'غيره', issuedAt: Date.now(), expiresAt: null }) }
+  });
+  check('رفض ترخيص صادر لجهاز آخر', foreign.status === 400 && foreign.data.error.includes('جهاز آخر'));
+
+  // ترخيص منتهٍ
+  const stale = await call('/api/license', {
+    method: 'POST',
+    body: { token: signLicense({ fp: licence.fingerprint, customer: 'قديم', issuedAt: 0, expiresAt: Date.now() - 1000 }) }
+  });
+  check('رفض ترخيص منتهي الصلاحية', stale.status === 400);
+
+  // ترخيص مزوَّر: نغيّر الحمولة ونبقي التوقيع
+  const genuine = signLicense({ fp: licence.fingerprint, customer: 'مارا', issuedAt: Date.now(), expiresAt: null });
+  const [body0, sig0] = genuine.split('.');
+  const tamperedPayload = Buffer.from(JSON.stringify({
+    fp: licence.fingerprint, customer: 'مزوّر', issuedAt: Date.now(), expiresAt: null
+  })).toString('base64url');
+  const tampered = await call('/api/license', { method: 'POST', body: { token: `${tamperedPayload}.${sig0}` } });
+  check('رفض ترخيص عُدِّلت حمولته', tampered.status === 400);
+
+  const garbage = await call('/api/license', { method: 'POST', body: { token: 'كلام-ليس-ترخيصًا' } });
+  check('رفض نص ليس ترخيصًا', garbage.status === 400);
+
+  const staffActivate = await call('/api/license', { method: 'POST', body: { token: genuine }, tokenOverride: staffToken });
+  check('منع الموظف من التفعيل', staffActivate.status === 403);
+
+  // التفعيل الصحيح
+  const activated = await call('/api/license', { method: 'POST', body: { token: genuine } });
+  check('قبول الترخيص الصحيح', activated.status === 200 && activated.data.state === 'licensed');
+  check('اسم العميل يُحفظ مع الترخيص', licence.status().customer === 'مارا');
+  check('التشغيل يعود بعد التفعيل', licence.allowsPlayback());
+
+  const playAgain = await call('/api/player/play', { method: 'POST' });
+  check('الأوامر تعمل بعد التفعيل', playAgain.status === 200);
+
+  // نسخ الترخيص لجهاز آخر لا ينفع: نفس النص ببصمة مختلفة
+  const other = new License({ fingerprint: '0123456789abcdef', publicKey: vendorPublic });
+  other.data = { firstRunAt: Date.now() - 40 * 86400000, token: genuine };
+  check('نسخ الترخيص لجهاز آخر لا يعمل', !other.allowsPlayback() && other.status().state === 'invalid');
+
+  const removed = await call('/api/license', { method: 'DELETE' });
+  check('إلغاء التفعيل', removed.status === 200 && !licence.allowsPlayback());
+
+  // أدوات البائع
+  check('توجد أداة توليد المفاتيح', fs.existsSync(path.join(__dirname, 'make-keys.js')));
+  check('توجد أداة إصدار التراخيص', fs.existsSync(path.join(__dirname, 'make-license.js')));
+  const keyModule = fs.readFileSync(path.join(__dirname, '..', 'src', 'main', 'license-key.js'), 'utf8');
+  check('المفتاح الخاص ليس داخل المشروع', !/PRIVATE KEY/.test(keyModule));
+  const ignore = fs.readFileSync(path.join(__dirname, '..', '.gitignore'), 'utf8');
+  check('المفتاح الخاص محجوب عن git', /private-key\.pem/.test(ignore));
+
+  // نعيد الحماية لحالتها حتى لا تتأثر بقية الاختبارات
+  licence.publicKey = '';
+  licence.data.firstRunAt = Date.now();
 
   section('ملفات الواجهة');
   const page = await fetch(`${base}/`);

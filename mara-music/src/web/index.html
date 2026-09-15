@@ -27,10 +27,30 @@
     </div>
   </section>
 
+  <!-- ============================== التفعيل =============================== -->
+  <section id="view-license" class="screen login" hidden>
+    <div class="login-box wide">
+      <div class="logo">🔒</div>
+      <h1>تفعيل مارا ميوزك</h1>
+      <p class="sub" id="license-reason">هذه النسخة تحتاج ترخيصًا لتعمل على هذا الجهاز.</p>
+
+      <div class="license-code-label">رمز هذا الجهاز</div>
+      <div class="license-code" id="license-code">—</div>
+      <p class="sub small">أرسل هذا الرمز لجهة البيع لتصدر لك ترخيصًا.</p>
+
+      <textarea id="license-token" rows="4" placeholder="الصق الترخيص هنا…"></textarea>
+      <button class="wide-btn save" id="license-activate">تفعيل</button>
+      <div class="error" id="license-error"></div>
+      <button class="link" id="license-logout">تسجيل الخروج</button>
+    </div>
+  </section>
+
   <!-- ================================ التطبيق ============================= -->
   <div id="app" hidden>
 
     <div class="offline-pill" id="offline-pill" hidden>لا يوجد اتصال بجهاز المحل…</div>
+
+    <div class="banner trial" id="trial-banner" hidden></div>
 
     <div class="banner" id="auto-banner" hidden>
       <span id="auto-banner-text"></span>

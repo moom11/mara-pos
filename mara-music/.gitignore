@@ -55,3 +55,8 @@ id_rsa.*
 .env.*
 secrets.json
 settings.local.json
+
+# مفتاح البائع الخاص — من يملكه يستطيع ترخيص أي جهاز
+private-key.pem
+*.pem
+.mara-vendor/

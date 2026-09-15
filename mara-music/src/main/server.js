@@ -28,7 +28,7 @@ const MIME_BY_EXT = {
 };
 
 function createServer(ctx) {
-  const { player, library, playlists, auth, scheduler, settings, saveSettings, appInfo, fx } = ctx;
+  const { player, library, playlists, auth, scheduler, settings, saveSettings, appInfo, fx, license } = ctx;
   const app = express();
   app.disable('x-powered-by');
   app.use(express.json({ limit: '1mb' }));
@@ -81,8 +81,29 @@ function createServer(ctx) {
       role: req.user.role,
       maxVolume: req.user.role === 'admin' ? 1 : Number(settings().maxStaffVolume ?? 0.85),
       canPause: req.user.role === 'admin' || settings().kiosk?.staffCanPause !== false,
-      appVersion: appInfo.version
+      appVersion: appInfo.version,
+      license: license ? license.status() : { state: 'off', allowed: true }
     });
+  });
+
+  // ----------------------------------------------------------- الترخيص
+
+  app.get('/api/license', requireAuth, (_req, res) => {
+    res.json(license ? license.status() : { state: 'off', allowed: true });
+  });
+
+  app.post('/api/license', requireAdmin, (req, res) => {
+    if (!license) return res.status(500).json({ error: 'نظام التراخيص غير مهيّأ' });
+    const result = license.activate(req.body?.token);
+    if (!result.ok) return res.status(400).json({ error: result.error });
+    broadcast({ type: 'license' });
+    res.json({ ok: true, ...license.status() });
+  });
+
+  app.delete('/api/license', requireAdmin, (_req, res) => {
+    if (license) license.deactivate();
+    broadcast({ type: 'license' });
+    res.json({ ok: true });
   });
 
   // ---------------------------------------------------------- التشغيل
@@ -93,9 +114,20 @@ function createServer(ctx) {
   const staffAllowed = new Set(['play', 'pause', 'toggle', 'next', 'previous', 'volume', 'mute']);
   const staffPauseGated = new Set(['play', 'pause', 'toggle', 'mute']);
 
+  // ما يبقى مسموحًا بلا ترخيص: إسكات الموسيقى فقط، لا تشغيلها
+  const allowedUnlicensed = new Set(['pause', 'stop', 'mute']);
+
   app.post('/api/player/:action', requireAuth, (req, res) => {
     const action = req.params.action;
     const isAdmin = req.user.role === 'admin' || req.user.role === 'internal';
+
+    if (license && !allowedUnlicensed.has(action) && !license.allowsPlayback()) {
+      const status = license.status();
+      return res.status(402).json({
+        error: status.state === 'expired' ? 'انتهت الفترة التجريبية — يلزم تفعيل الترخيص' : 'يلزم تفعيل الترخيص',
+        license: status
+      });
+    }
     if (!isAdmin && !staffAllowed.has(action)) {
       return res.status(403).json({ error: 'هذه الصلاحية للمدير فقط' });
     }
