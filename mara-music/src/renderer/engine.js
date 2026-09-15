@@ -30,6 +30,18 @@
   let intent = 'stopped'; // ما طُلب منّا فعله — يمنع اهتزاز الحالة أثناء التلاشي
   let pauseSeq = 0;
 
+  // تسوية الصوت: معامل لكل أغنية تحسبه العملية الرئيسية من تحليلها
+  let currentGain = 1;
+  let standbyGain = 1;
+  // نقاط مشتقّة من التحليل: أين يبدأ المزج، ومن أين تبدأ الأغنية القادمة
+  let mixAtAbs = 0;
+  let nextStartAt = 0;
+  // لوب المقطع: {start, end} داخل الأغنية الحالية
+  let loop = null;
+
+  const levelOf = (el) => (el === current ? currentGain : standbyGain);
+  const targetVol = (el) => clamp(masterVolume * levelOf(el));
+
   const emit = (event) => window.mara && window.mara.emit(event);
 
   // ================================================================ الديجي
@@ -359,6 +371,122 @@
     for (const id of [...fxActive.keys()]) stopFx(id);
   }
 
+  // ====================================================== تحليل الأغاني
+
+  let analyzeCtx = null;
+  let analyzing = false;
+
+  /**
+   * سياق مستقل للتحليل فقط — لا يُوصَل بالسماعات ولا يمسّ مسار التشغيل.
+   * تردّد منخفض عمدًا: منحنى الطاقة لا يحتاج دقة عالية، والذاكرة تنتصف.
+   */
+  function getAnalyzeCtx() {
+    if (analyzeCtx) return analyzeCtx;
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return null;
+    try {
+      analyzeCtx = new AudioCtx({ sampleRate: 22050 });
+    } catch (_) {
+      analyzeCtx = new AudioCtx();
+    }
+    return analyzeCtx;
+  }
+
+  async function analyzeTrack(id, url) {
+    if (analyzing) {
+      emit({ type: 'analysis', id, ok: false, busy: true, message: 'التحليل مشغول' });
+      return;
+    }
+    const actx = getAnalyzeCtx();
+    if (!actx) {
+      emit({ type: 'analysis', id, ok: false, message: 'الجهاز لا يدعم التحليل' });
+      return;
+    }
+    analyzing = true;
+    try {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`رمز ${response.status}`);
+      const bytes = await response.arrayBuffer();
+      const buffer = await actx.decodeAudioData(bytes);
+      emit({ type: 'analysis', id, ok: true, data: envelopeStats(buffer) });
+    } catch (err) {
+      emit({ type: 'analysis', id, ok: false, message: err.message });
+    } finally {
+      analyzing = false;
+    }
+  }
+
+  /**
+   * منحنى الطاقة: جذر متوسط المربعات لكل ربع ثانية، ثم نستخرج منه
+   * نهاية المقدمة وبداية الخاتمة وأقوى مقطع ومتوسط الجهارة.
+   */
+  function envelopeStats(buffer) {
+    const rate = buffer.sampleRate;
+    const duration = buffer.duration;
+    const win = Math.max(1, Math.round(rate * 0.25));
+    const left = buffer.getChannelData(0);
+    const right = buffer.numberOfChannels > 1 ? buffer.getChannelData(1) : null;
+    const count = Math.floor(left.length / win);
+    if (count < 8) return { duration, loudnessDb: -20, introEndSec: 0, outroStartSec: Math.max(0, duration - 8), peakSec: 0 };
+
+    const env = new Float32Array(count);
+    let totalSq = 0;
+    for (let i = 0; i < count; i += 1) {
+      const start = i * win;
+      let acc = 0;
+      for (let j = 0; j < win; j += 1) {
+        const s = right ? (left[start + j] + right[start + j]) * 0.5 : left[start + j];
+        acc += s * s;
+      }
+      env[i] = Math.sqrt(acc / win);
+      totalSq += acc;
+    }
+
+    const overall = Math.sqrt(totalSq / (count * win)) || 0.00001;
+    let peak = 0;
+    for (let i = 0; i < count; i += 1) if (env[i] > peak) peak = env[i];
+    const threshold = peak * 0.35;
+    const secPerWin = win / rate;
+
+    // المقدمة: أول لحظة ترتفع فيها الطاقة وتثبت ثانيتين — لا مجرد نبضة عابرة
+    const sustain = Math.max(1, Math.round(2 / secPerWin));
+    let introEnd = 0;
+    for (let i = 0; i < count - sustain; i += 1) {
+      if (env[i] < threshold) continue;
+      let holds = true;
+      for (let j = i; j < i + sustain; j += 1) {
+        if (env[j] < threshold * 0.7) { holds = false; break; }
+      }
+      if (holds) { introEnd = i * secPerWin; break; }
+    }
+
+    // الخاتمة: آخر لحظة كانت الطاقة فيها عالية
+    let outroStart = duration;
+    for (let i = count - 1; i >= 0; i -= 1) {
+      if (env[i] >= threshold) { outroStart = (i + 1) * secPerWin; break; }
+    }
+
+    // أقوى مقطع: متوسط متحرك عشر ثوانٍ يتجاهل القمم اللحظية
+    const span = Math.max(1, Math.round(10 / secPerWin));
+    let best = -1;
+    let bestAt = 0;
+    let running = 0;
+    for (let i = 0; i < count; i += 1) {
+      running += env[i];
+      if (i >= span) running -= env[i - span];
+      if (i >= span && running > best) { best = running; bestAt = (i - span / 2) * secPerWin; }
+    }
+
+    return {
+      duration: Math.round(duration * 10) / 10,
+      loudnessDb: Math.round(20 * Math.log10(overall) * 10) / 10,
+      // حدود أمان: لا نقفز أكثر من ربع الأغنية ولا 45 ثانية مهما قال المنحنى
+      introEndSec: Math.round(Math.min(introEnd, 45, duration * 0.25) * 10) / 10,
+      outroStartSec: Math.round(Math.max(duration * 0.5, Math.min(outroStart, duration - 3)) * 10) / 10,
+      peakSec: Math.round(Math.max(0, bestAt) * 10) / 10
+    };
+  }
+
   // --------------------------------------------------------------- التلاشي
 
   function fadeTo(el, target, ms) {
@@ -400,7 +528,7 @@
     }
   }
 
-  function loadTrack({ id, url, startAt = 0, autoplay = true }) {
+  function loadTrack({ id, url, startAt = 0, autoplay = true, gain = 1 }) {
     const isStream = String(id || '').startsWith('stream:');
     intent = autoplay ? 'playing' : 'paused';
     pauseSeq += 1;
@@ -408,6 +536,9 @@
     standbyBusy = false;
     queuedPreload = null;
     preloaded = null;
+    loop = null; // اللوب يخص أغنية بعينها
+    currentGain = Number.isFinite(gain) ? gain : 1;
+    standbyGain = 1;
     cancelFades();
 
     if (isStream) {
@@ -447,9 +578,9 @@
       if (autoplay) {
         element.volume = 0;
         safePlay(element);
-        fadeTo(element, masterVolume, 600);
+        fadeTo(element, targetVol(element), 600);
       } else {
-        element.volume = masterVolume;
+        element.volume = targetVol(element);
       }
       report();
     };
@@ -458,6 +589,10 @@
 
   function applyPreload(command) {
     crossfadeSec = Number(command.crossfadeSec) || 0;
+    // نقاط التحليل تصل مع التحميل المسبق لأن العملية الرئيسية تعرف الأغنيتين حينها
+    mixAtAbs = Number(command.mixAtSec) || 0;
+    nextStartAt = Number(command.nextStartAt) || 0;
+    standbyGain = Number.isFinite(command.gain) ? command.gain : 1;
     if (!command.id || !command.url) {
       preloaded = null;
       standby.removeAttribute('src');
@@ -484,8 +619,10 @@
     const nextId = preloaded.id;
 
     next.volume = 0;
-    if (mix && dj.skipIntroSec > 0) {
-      try { next.currentTime = Math.min(dj.skipIntroSec, (next.duration || Infinity) - 5); } catch (_) { /* تجاهل */ }
+    // نقطة البداية من التحليل أدقّ من رقم ثابت، فإن وُجدت قُدِّمت عليه
+    const skipTo = nextStartAt > 0 ? nextStartAt : (mix ? dj.skipIntroSec : 0);
+    if (skipTo > 0) {
+      try { next.currentTime = Math.min(skipTo, (next.duration || Infinity) - 5); } catch (_) { /* تجاهل */ }
     }
     resetSweep(next);
     safePlay(next);
@@ -502,7 +639,7 @@
     if (mix && dj.echoOnMix) echoTail();
 
     standbyBusy = true;
-    fadeTo(next, masterVolume, ms);
+    fadeTo(next, clamp(masterVolume * standbyGain), ms);
     fadeTo(previous, 0, ms).then(() => {
       previous.pause();
       try {
@@ -524,6 +661,11 @@
     // تبديل الأدوار
     current = next;
     standby = previous;
+    currentGain = standbyGain;
+    standbyGain = 1;
+    mixAtAbs = 0;
+    nextStartAt = 0;
+    loop = null;
     currentId = nextId;
     preloaded = null;
     emit({ type: 'started', id: nextId });
@@ -546,12 +688,29 @@
 
     el.addEventListener('timeupdate', () => {
       if (el !== current || crossfading) return;
+
+      // اللوب يسبق كل شيء: ما دام فعّالًا لا انتقال ولا مزج
+      if (loop) {
+        if (el.currentTime >= loop.end) {
+          try { el.currentTime = loop.start; } catch (_) { /* تجاهل */ }
+        }
+        return;
+      }
+
       const duration = el.duration;
       if (!Number.isFinite(duration) || duration <= 0) return;
-      const remaining = duration - el.currentTime;
       const mix = dj.enabled && dj.autoMix && el !== S;
-      const startAt = mix ? Math.max(crossfadeSec, Number(dj.mixAtSec) || 12) : crossfadeSec;
-      if (startAt > 0 && remaining <= startAt && preloaded && standby.readyState >= 3 && !el.paused) {
+
+      let shouldMix;
+      if (mix && mixAtAbs > 0) {
+        // نقطة هبوط الأغنية من التحليل — أدقّ من عدّ الثواني من النهاية
+        shouldMix = el.currentTime >= mixAtAbs;
+      } else {
+        const startAt = mix ? Math.max(crossfadeSec, Number(dj.mixAtSec) || 12) : crossfadeSec;
+        shouldMix = startAt > 0 && duration - el.currentTime <= startAt;
+      }
+
+      if (shouldMix && preloaded && standby.readyState >= 3 && !el.paused) {
         startPreloadedNow({ fade: true, mix });
       }
     });
@@ -606,7 +765,7 @@
           pauseSeq += 1;
           current.volume = 0;
           safePlay(current);
-          fadeTo(current, masterVolume, command.fadeMs ?? 400);
+          fadeTo(current, targetVol(current), command.fadeMs ?? 400);
           report();
           break;
 
@@ -643,7 +802,32 @@
         case 'volume':
           masterVolume = clamp(command.value);
           // العنصر المتوقّف يبقى عند صفر — أمر التشغيل يرفعه تدريجيًا
-          if (!current.paused) fadeTo(current, masterVolume, command.fadeMs ?? 250);
+          if (!current.paused) fadeTo(current, targetVol(current), command.fadeMs ?? 250);
+          break;
+
+        // ------------------------------------------- التحليل واللوب
+
+        case 'analyze':
+          analyzeTrack(command.id, command.url);
+          break;
+
+        case 'loop-set': {
+          const start = Math.max(0, Number(command.start) || 0);
+          const end = Number(command.end) || 0;
+          if (end - start < 1) {
+            loop = null;
+            break;
+          }
+          loop = { start, end };
+          // القفز للبداية فورًا لو كنا خارج المقطع، وإلا سمعنا ما بعده قبل أول دورة
+          if (current.currentTime < start || current.currentTime > end) {
+            try { current.currentTime = start; } catch (_) { /* تجاهل */ }
+          }
+          break;
+        }
+
+        case 'loop-clear':
+          loop = null;
           break;
 
         // ------------------------------------------------------ الديجي

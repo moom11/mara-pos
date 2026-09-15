@@ -221,7 +221,11 @@ class Library extends EventEmitter {
       cover: null,
       addedAt: existing ? existing.addedAt : Date.now(),
       playCount: existing ? existing.playCount || 0 : 0,
-      lastPlayedAt: existing ? existing.lastPlayedAt || null : null
+      lastPlayedAt: existing ? existing.lastPlayedAt || null : null,
+      // التحليل الصوتي يبقى ما دام الملف نفسه لم يتغيّر — إعادته مكلفة بلا داعٍ
+      analysis: existing && existing.size === file.size && existing.mtime === file.mtime
+        ? existing.analysis || null
+        : null
     };
 
     try {
@@ -242,6 +246,27 @@ class Library extends EventEmitter {
       console.warn(`[library] تعذّرت قراءة بيانات ${relPath}: ${err.message}`);
     }
     return base;
+  }
+
+  /**
+   * يحفظ نتيجة تحليل الموجة الصوتية لأغنية.
+   * `null` تعني أن التحليل فشل — نسجّلها حتى لا يُعاد على ملف تالف كل مرة.
+   */
+  setAnalysis(id, data) {
+    const t = this.tracks.get(id);
+    if (!t) return false;
+    t.analysis = data ? { ...data, at: Date.now() } : { failed: true, at: Date.now() };
+    this.persist();
+    return true;
+  }
+
+  /** معرّفات الأغاني التي لم تُحلَّل بعد — الأحدث إضافة أولًا. */
+  pendingAnalysis(limit = 500) {
+    return this.list()
+      .filter((t) => !t.analysis)
+      .sort((a, b) => (b.addedAt || 0) - (a.addedAt || 0))
+      .slice(0, limit)
+      .map((t) => t.id);
   }
 
   markPlayed(id) {

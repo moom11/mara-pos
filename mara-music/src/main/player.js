@@ -4,9 +4,15 @@ const { EventEmitter } = require('events');
 const { readJSON, DebouncedWriter } = require('./store');
 const { ALL_TRACKS_ID } = require('./playlists');
 
+/** مستوى الجهارة المستهدف للتسوية — نخفض الأعلى منه ولا نرفع الأدنى تفاديًا للتشويه. */
+const AUTO_LEVEL_TARGET_DB = -16;
+
 const DJ_DEFAULTS = {
   enabled: false,
   autoMix: true,
+  analyze: true, // تحليل الموجة الصوتية في الخلفية
+  autoLevel: true, // تسوية جهارة الأغاني اعتمادًا على التحليل
+  smartMix: true, // استخدام نقاط التحليل بدل الأرقام الثابتة
   everyMin: 0, // 0 = معطّل؛ وإلا أقصى مدة تُعزف من أي أغنية قبل الانتقال
   mixAtSec: 12,
   skipIntroSec: 0,
@@ -50,8 +56,16 @@ class Player extends EventEmitter {
       repeat: settings.repeat || 'all',
       autoPause: null,
       stream: null, // بث مباشر قيد التشغيل: {id, name, url}
+      loop: null, // لوب مقطع داخل الأغنية الحالية: {start, end|null}
       lastError: null
     };
+
+    // تحليل الأغاني: طابور خلفي يعمل أغنية واحدة في كل مرة
+    this.analysisQueue = [];
+    this.analysisBusy = false;
+    this.library.on('changed', () => {
+      setTimeout(() => this.startAnalysis(), 2000);
+    });
     this.streamRetries = 0;
 
     // مود الديجي — الفلتر والصدى لحظيان: لا يُحفظان حتى لا يبدأ اليوم بصوت مكتوم
@@ -127,12 +141,15 @@ class Player extends EventEmitter {
         id: this.state.currentId,
         url: this.currentUrl(),
         startAt: this.state.stream ? 0 : this.state.position,
-        autoplay: !!this.resumeOnBoot
+        autoplay: !!this.resumeOnBoot,
+        gain: this.gainFor(this.library.get(this.state.currentId))
       });
       if (this.resumeOnBoot) this.state.status = 'playing';
       this.resumeOnBoot = false;
       this.schedulePreload();
     }
+    // التحليل ينتظر حتى يستقر التشغيل — الإقلاع أولى بالمعالج
+    setTimeout(() => this.startAnalysis(), 8000);
     this.publish();
   }
 
@@ -303,9 +320,10 @@ class Player extends EventEmitter {
     this.state.duration = track.duration || 0;
     this.state.status = 'playing';
     this.state.lastError = null;
+    this.state.loop = null; // اللوب يخص أغنية بعينها
     this.clearAutoPause({ silent: true });
     this.library.markPlayed(id);
-    this.command('load', { id, url: this.urlFor(id), startAt: 0, autoplay: true });
+    this.command('load', { id, url: this.urlFor(id), startAt: 0, autoplay: true, gain: this.gainFor(track) });
     this.schedulePreload();
     this.resetMixTimer();
     this.publish();
@@ -502,6 +520,9 @@ class Player extends EventEmitter {
     const before = this.dj.enabled;
     if (typeof patch.enabled === 'boolean') this.dj.enabled = patch.enabled;
     if (typeof patch.autoMix === 'boolean') this.dj.autoMix = patch.autoMix;
+    if (typeof patch.analyze === 'boolean') this.dj.analyze = patch.analyze;
+    if (typeof patch.autoLevel === 'boolean') this.dj.autoLevel = patch.autoLevel;
+    if (typeof patch.smartMix === 'boolean') this.dj.smartMix = patch.smartMix;
     if (typeof patch.sweep === 'boolean') this.dj.sweep = patch.sweep;
     if (typeof patch.echoOnMix === 'boolean') this.dj.echoOnMix = patch.echoOnMix;
     if (typeof patch.echo === 'boolean') this.dj.echo = patch.echo;
@@ -521,6 +542,7 @@ class Player extends EventEmitter {
     for (const key of DJ_PERSISTED) persisted[key] = this.dj[key];
     this.settings.dj = persisted;
     this.command('dj', { config: this.dj });
+    if (this.dj.analyze !== false) setTimeout(() => this.startAnalysis(), 500);
     this.resetMixTimer();
     this.emit('settings-changed');
     this.publish();
@@ -540,6 +562,7 @@ class Player extends EventEmitter {
     const minutes = Number(this.dj.everyMin) || 0;
     if (!this.dj.enabled || minutes <= 0) return;
     if (this.state.stream || this.state.status !== 'playing') return;
+    if (this.state.loop) return; // لوب مقصود لا يقطعه مؤقّت
 
     const remaining = minutes * 60000 - Math.max(0, this.state.position * 1000);
     this.mixTimer = setTimeout(() => {
@@ -561,6 +584,100 @@ class Player extends EventEmitter {
   djDrop() {
     if (!this.dj.enabled) return false;
     this.command('dj-drop', { buildSec: this.dj.dropBuildSec });
+    return true;
+  }
+
+  // ------------------------------------------------------- تحليل الأغاني
+
+  /**
+   * يحلّل أغنية واحدة في كل مرة في الخلفية. التحليل يفكّ ترميز الملف كاملًا،
+   * فتشغيل عدة تحليلات معًا يلتهم الذاكرة ويربك الصوت على جهاز ضعيف.
+   */
+  startAnalysis() {
+    if (this.analysisBusy || !this.rendererReady) return;
+    if (this.dj.analyze === false) return;
+
+    if (!this.analysisQueue.length) {
+      this.analysisQueue = this.library.pendingAnalysis();
+      if (!this.analysisQueue.length) return;
+      console.log(`[analysis] ${this.analysisQueue.length} أغنية بانتظار التحليل`);
+    }
+
+    while (this.analysisQueue.length) {
+      const id = this.analysisQueue.shift();
+      if (!this.library.get(id)) continue;
+      this.analysisBusy = true;
+      this.command('analyze', { id, url: this.urlFor(id) });
+      return;
+    }
+  }
+
+  onAnalysis(event) {
+    this.analysisBusy = false;
+    if (event.busy) {
+      // المحرّك كان مشغولًا — نعيدها للطابور بدل تسجيلها كفاشلة
+      this.analysisQueue.unshift(event.id);
+    } else if (event.ok) {
+      this.library.setAnalysis(event.id, event.data);
+      // الأغنية قيد التشغيل أو التالية تأثّرت نقاط مزجها
+      this.schedulePreload();
+    } else {
+      console.warn(`[analysis] تعذّر تحليل ${event.id}: ${event.message}`);
+      this.library.setAnalysis(event.id, null);
+    }
+    setTimeout(() => this.startAnalysis(), event.busy ? 4000 : 1200);
+  }
+
+  /** معامل تسوية الجهارة لأغنية — نخفض العالية ولا نرفع الخافتة. */
+  gainFor(track) {
+    if (this.dj.autoLevel === false) return 1;
+    const analysis = track && track.analysis;
+    if (!analysis || analysis.failed || !Number.isFinite(analysis.loudnessDb)) return 1;
+    const gain = Math.pow(10, (AUTO_LEVEL_TARGET_DB - analysis.loudnessDb) / 20);
+    return Math.min(1, Math.max(0.4, Math.round(gain * 100) / 100));
+  }
+
+  /** تحليل صالح لأغنية، أو null إن لم يوجد أو عُطّل المزج الذكي. */
+  analysisOf(id) {
+    if (this.dj.smartMix === false) return null;
+    const track = id ? this.library.get(id) : null;
+    const analysis = track && track.analysis;
+    return analysis && !analysis.failed ? analysis : null;
+  }
+
+  // ---------------------------------------------------------- لوب المقطع
+
+  /**
+   * زر واحد يدور: تحديد البداية ← تحديد النهاية وتشغيل اللوب ← خروج.
+   * المنطق هنا لا في الجوال، فكل الأجهزة ترى نفس الحالة.
+   */
+  toggleLoopPoint() {
+    if (this.state.stream || !this.state.currentId) return false;
+    const position = Math.round(Math.max(0, this.state.position) * 10) / 10;
+    const loop = this.state.loop;
+
+    if (!loop) {
+      this.state.loop = { start: position, end: null };
+    } else if (loop.end === null) {
+      if (position - loop.start < 1) return false; // مقطع أقصر من ثانية بلا معنى
+      loop.end = position;
+      this.command('loop-set', { start: loop.start, end: loop.end });
+    } else {
+      return this.clearLoop();
+    }
+    this.resetMixTimer();
+    this.publish();
+    return true;
+  }
+
+  clearLoop({ silent = false } = {}) {
+    if (!this.state.loop) return false;
+    this.state.loop = null;
+    this.command('loop-clear', {});
+    if (!silent) {
+      this.resetMixTimer();
+      this.publish();
+    }
     return true;
   }
 
@@ -670,6 +787,10 @@ class Player extends EventEmitter {
         }
         break;
       }
+      case 'analysis': {
+        this.onAnalysis(event);
+        break;
+      }
       case 'fx-started': {
         if (event.id && !this.activeFx.has(event.id)) {
           this.activeFx.add(event.id);
@@ -726,6 +847,7 @@ class Player extends EventEmitter {
     this.state.position = 0;
     this.state.duration = track ? track.duration || 0 : 0;
     this.state.status = 'playing';
+    this.state.loop = null;
     this.library.markPlayed(pending.id);
     this.schedulePreload();
     this.resetMixTimer();
@@ -743,10 +865,16 @@ class Player extends EventEmitter {
     const next = this.peekNext();
     this.pendingNext = next;
     const crossfade = Number(this.settings.crossfadeSec) || 0;
+    const currentAnalysis = this.analysisOf(this.state.currentId);
+    const nextAnalysis = next ? this.analysisOf(next.id) : null;
     this.command('preload', {
       id: next ? next.id : null,
       url: next ? this.urlFor(next.id) : null,
-      crossfadeSec: crossfade
+      crossfadeSec: crossfade,
+      gain: next ? this.gainFor(this.library.get(next.id)) : 1,
+      // نقطة هبوط الأغنية الحالية، وموضع بدء القادمة بعد مقدمتها
+      mixAtSec: currentAnalysis ? currentAnalysis.outroStartSec : 0,
+      nextStartAt: nextAnalysis ? nextAnalysis.introEndSec : 0
     });
   }
 
@@ -838,6 +966,8 @@ class Player extends EventEmitter {
       repeat: this.state.repeat,
       source: { id: this.state.sourceId, name: this.state.sourceName },
       dj: { ...this.dj },
+      loop: this.state.loop,
+      analysisPending: this.analysisQueue.length + (this.analysisBusy ? 1 : 0),
       activeFx: [...this.activeFx],
       queue: this.state.queue.map((id) => {
         const t = this.library.get(id);

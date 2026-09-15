@@ -195,6 +195,12 @@ function createServer(ctx) {
       case 'fx-stop-all':
         player.stopAllFx();
         break;
+      case 'loop-mark':
+        if (!player.toggleLoopPoint()) return res.status(400).json({ error: 'تعذّر تحديد اللوب هنا' });
+        break;
+      case 'loop-clear':
+        player.clearLoop();
+        break;
       default:
         return res.status(400).json({ error: 'أمر غير معروف' });
     }

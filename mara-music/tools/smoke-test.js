@@ -513,6 +513,105 @@ async function main() {
   check('محرّك الصوت يفصل البث المباشر عن معالجات الديجي', /startsWith\('stream:'\)/.test(engineSource));
   check('لا مزج مع البث المباشر', /if \(current === S\) return false/.test(engineSource));
 
+  section('تحليل الأغاني');
+
+  player.analysisBusy = false;
+  player.analysisQueue = [];
+  const anaTrack = tracks[2];
+
+  check('الأغاني غير المحلّلة تدخل الطابور', library.pendingAnalysis().includes(anaTrack.id));
+
+  const analyzeBefore = commands.filter((c) => c.type === 'analyze').length;
+  player.startAnalysis();
+  const analyzeCmd = commands.filter((c) => c.type === 'analyze').pop();
+  check('إرسال أمر التحليل للمحرّك', commands.filter((c) => c.type === 'analyze').length === analyzeBefore + 1);
+  check('أمر التحليل يحمل رابط الأغنية', !!analyzeCmd && analyzeCmd.url.includes('/api/stream/'));
+  check('لا يُشغَّل تحليلان معًا', (() => {
+    const before = commands.filter((c) => c.type === 'analyze').length;
+    player.startAnalysis();
+    return commands.filter((c) => c.type === 'analyze').length === before;
+  })());
+
+  // المحرّك مشغول: تُعاد للطابور لا تُسجَّل فاشلة
+  const busyId = analyzeCmd.id;
+  player.onRendererEvent({ type: 'analysis', id: busyId, ok: false, busy: true, message: 'مشغول' });
+  check('التحليل المؤجَّل يعود للطابور', player.analysisQueue[0] === busyId);
+  check('التأجيل لا يُسجَّل فشلًا', !library.get(busyId).analysis);
+
+  const anaSample = { duration: 200, loudnessDb: -10, introEndSec: 8, outroStartSec: 180, peakSec: 120 };
+  player.analysisBusy = true;
+  player.onRendererEvent({ type: 'analysis', id: anaTrack.id, ok: true, data: anaSample });
+  check('حفظ نتيجة التحليل', library.get(anaTrack.id).analysis.outroStartSec === 180);
+  check('الأغنية المحلّلة تخرج من الطابور', !library.pendingAnalysis().includes(anaTrack.id));
+
+  player.analysisBusy = true;
+  player.onRendererEvent({ type: 'analysis', id: tracks[3].id, ok: false, message: 'ملف تالف' });
+  check('الملف التالف يُسجَّل فاشلًا فلا يُعاد أبدًا', library.get(tracks[3].id).analysis.failed === true);
+  check('الفاشل يخرج من الطابور', !library.pendingAnalysis().includes(tracks[3].id));
+
+  // فحص كامل يعيد قراءة كل ملف — التحليل يجب أن ينجو ما دام الملف نفسه
+  await library.scan({ full: true });
+  check('التحليل ينجو من الفحص الكامل', library.get(anaTrack.id).analysis.outroStartSec === 180);
+
+  // تسوية الجهارة: نخفض العالية ولا نرفع الخافتة
+  check('الأغنية العالية تُخفَّض', player.gainFor(library.get(anaTrack.id)) < 1);
+  check('الخفض لا ينزل تحت الحد الآمن', player.gainFor(library.get(anaTrack.id)) >= 0.4);
+  check('الأغنية الخافتة لا تُرفَع', player.gainFor({ analysis: { loudnessDb: -30 } }) === 1);
+  check('بلا تحليل لا تسوية', player.gainFor(library.get(tracks[0].id)) === 1);
+  check('الملف الفاشل لا تسوية له', player.gainFor(library.get(tracks[3].id)) === 1);
+
+  await call('/api/player/dj', { method: 'POST', body: { autoLevel: false } });
+  check('إطفاء التسوية يعيد المعامل إلى 1', player.gainFor(library.get(anaTrack.id)) === 1);
+  await call('/api/player/dj', { method: 'POST', body: { autoLevel: true } });
+
+  // نقاط التحليل تصل للمحرّك مع التحميل المسبق
+  player.playNow(anaTrack.id);
+  const preload = commands.filter((c) => c.type === 'preload').pop();
+  check('نقطة هبوط الأغنية تُرسل للمحرّك', preload.mixAtSec === 180);
+  check('معامل التسوية يُرسل مع الأغنية القادمة', typeof preload.gain === 'number');
+
+  await call('/api/player/dj', { method: 'POST', body: { smartMix: false } });
+  player.schedulePreload();
+  check('إطفاء المزج الذكي يلغي نقاط التحليل', commands.filter((c) => c.type === 'preload').pop().mixAtSec === 0);
+  await call('/api/player/dj', { method: 'POST', body: { smartMix: true } });
+
+  section('لوب المقطع');
+
+  player.playNow(tracks[0].id);
+  player.state.position = 10;
+  const loopCmdsBefore = commands.filter((c) => c.type === 'loop-set').length;
+
+  await call('/api/player/loop-mark', { method: 'POST' });
+  check('الضغطة الأولى تحدّد البداية', player.publicState().loop.start === 10);
+  check('لا لوب قبل تحديد النهاية', player.publicState().loop.end === null);
+  check('لا أمر للمحرّك بعد', commands.filter((c) => c.type === 'loop-set').length === loopCmdsBefore);
+
+  player.state.position = 10.5;
+  const tooShort = await call('/api/player/loop-mark', { method: 'POST' });
+  check('رفض مقطع أقصر من ثانية', tooShort.status === 400 && player.publicState().loop.end === null);
+
+  player.state.position = 26;
+  await call('/api/player/loop-mark', { method: 'POST' });
+  check('الضغطة الثانية تشغّل اللوب', player.publicState().loop.end === 26);
+  const loopSet = commands.filter((c) => c.type === 'loop-set').pop();
+  check('المحرّك يتسلّم حدود اللوب', loopSet.start === 10 && loopSet.end === 26);
+  check('المؤقّت الزمني لا يقطع لوبًا مقصودًا', !player.mixTimer);
+
+  await call('/api/player/loop-mark', { method: 'POST' });
+  check('الضغطة الثالثة تخرج من اللوب', player.publicState().loop === null);
+  check('المحرّك يتسلّم أمر الخروج', commands.filter((c) => c.type === 'loop-clear').length > 0);
+
+  player.state.position = 5;
+  await call('/api/player/loop-mark', { method: 'POST' });
+  player.state.position = 20;
+  await call('/api/player/loop-mark', { method: 'POST' });
+  check('اللوب فعّال قبل تغيير الأغنية', !!player.publicState().loop);
+  player.playNow(tracks[1].id);
+  check('تغيير الأغنية يلغي اللوب', player.publicState().loop === null);
+
+  const staffLoop = await call('/api/player/loop-mark', { method: 'POST', tokenOverride: staffToken });
+  check('منع الموظف من اللوب', staffLoop.status === 403);
+
   section('البث المباشر');
   const badUrl = await call('/api/streams', { method: 'POST', body: { name: 'خطر', url: 'file:///C:/Windows/System32' } });
   check('رفض الروابط غير http/https', badUrl.status === 400);

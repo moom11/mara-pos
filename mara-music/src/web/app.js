@@ -350,6 +350,20 @@ function renderDj() {
   $('dj-panel').hidden = !dj.enabled;
   $('dj-echo').classList.toggle('on', !!dj.echo);
   $('dj-automix').classList.toggle('on', !!dj.autoMix);
+
+  // زر اللوب يعكس المرحلة التي نحن فيها، فلا يحتاج المستخدم تذكّرها
+  const loop = app.state.loop;
+  const loopBtn = $('dj-loop');
+  if (!loop) loopBtn.textContent = 'لوب';
+  else if (loop.end === null) loopBtn.textContent = 'حدّد النهاية';
+  else loopBtn.textContent = `خروج (${Math.round(loop.end - loop.start)}ث)`;
+  loopBtn.classList.toggle('on', !!loop);
+
+  const pending = app.state.analysisPending || 0;
+  const note = $('dj-analysis');
+  note.hidden = pending === 0;
+  if (pending) note.textContent = `جارٍ تحليل الأغاني… بقي ${pending}. المزج الذكي يتحسّن مع كل أغنية تُحلَّل.`;
+
   renderFxPads();
   if (!app.djDragging) {
     $('dj-filter').value = dj.filter || 0;
@@ -860,6 +874,9 @@ async function renderSettings() {
     numberRow('تمكيس كل (دقيقة) — 0 يعني معطّل', 'dj.everyMin', djSettings.everyMin ?? 0, 0, 30, 0.5),
     numberRow('يبدأ المزج قبل النهاية بـ (ثانية)', 'dj.mixAtSec', djSettings.mixAtSec ?? 12, 2, 20, 1),
     numberRow('تجاوز بداية الأغنية القادمة (ثانية)', 'dj.skipIntroSec', djSettings.skipIntroSec ?? 0, 0, 30, 1),
+    toggleRow('تحليل الأغاني في الخلفية', 'dj.analyze', djSettings.analyze !== false),
+    toggleRow('مزج ذكي من نقاط التحليل', 'dj.smartMix', djSettings.smartMix !== false),
+    toggleRow('تسوية جهارة الأغاني', 'dj.autoLevel', djSettings.autoLevel !== false),
     toggleRow('كنس ترددي عند الانتقال', 'dj.sweep', djSettings.sweep !== false),
     toggleRow('ذيل صدى عند الانتقال', 'dj.echoOnMix', djSettings.echoOnMix !== false),
     numberRow('مدة الشدّ قبل الدروب (ثانية)', 'dj.dropBuildSec', djSettings.dropBuildSec ?? 4, 1, 12, 1)
@@ -1336,6 +1353,7 @@ function wireEvents() {
   $('dj-drop').onclick = () => cmd('dj-drop').catch((e) => toast(e.message));
   $('dj-echo').onclick = () => dj({ echo: !(app.state && app.state.dj && app.state.dj.echo) });
   $('dj-automix').onclick = () => dj({ autoMix: !(app.state && app.state.dj && app.state.dj.autoMix) });
+  $('dj-loop').onclick = () => cmd('loop-mark').catch((e) => toast(e.message));
   $('fx-stop-all').onclick = () => cmd('fx-stop-all').catch((e) => toast(e.message));
   $('fx-input').addEventListener('change', (e) => {
     uploadFx([...e.target.files]);
