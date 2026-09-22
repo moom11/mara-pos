@@ -895,6 +895,16 @@ async function main() {
   const batWithBom = batFiles.filter((f) => fs.readFileSync(path.join(projectRoot, f)).slice(0, 3).equals(Buffer.from([0xef, 0xbb, 0xbf])));
   check('ملفات bat بلا BOM (وإلا تعطّل @echo off)', batWithBom.length === 0, batWithBom.join(', '));
 
+  /*
+   * %~dp0 ينتهي دائمًا بشرطة مائلة، فـ "%~dp0" تصير "C:\...\" وتُقرأ \"
+   * كعلامة اقتباس هاربة، فيصل المسار مشوّهًا للبرنامج. يجب حذف الشرطة أولًا.
+   */
+  const batWithTrailingSlash = batFiles.filter((f) => fs.readFileSync(path.join(projectRoot, f), 'utf8')
+    .split(/\r?\n/)
+    // cd يتعامل مع الشرطة الأخيرة بلا مشكلة — العطل يقع عند تمريرها لبرنامج خارجي
+    .some((line) => /"%~dp0"/.test(line) && !/^\s*cd\s/i.test(line)));
+  check('ملفات bat لا تمرّر %~dp0 بشرطته الأخيرة لبرنامج', batWithTrailingSlash.length === 0, batWithTrailingSlash.join(', '));
+
   check('توجد أداة التحديث عبر الإنترنت', fs.existsSync(path.join(projectRoot, 'تحديث-مارا.bat')) && fs.existsSync(path.join(projectRoot, 'tools', 'update.ps1')));
   const updateSource = fs.readFileSync(path.join(projectRoot, 'tools', 'update.ps1'), 'utf8');
   // نسخ مجلد فوق مجلد موجود بالاسم نفسه يولّد tools\tools بدل الاستبدال

@@ -50,5 +50,12 @@ if not exist "%ELECTRON%" (
   exit /b 1
 )
 
-start "" "%ELECTRON%" "%~dp0"
+rem ---- إزالة الشرطة المائلة الأخيرة من المسار قبل تمريره
+rem  %~dp0 ينتهي دائمًا بـ \ ، فتصير "C:\...\mara-music\" وتُقرأ \" كعلامة
+rem  اقتباس هاربة، فيصل المسار مشوّهًا ويقول Electron إنه لا يجد التطبيق.
+
+set "APPDIR=%~dp0"
+if "%APPDIR:~-1%"=="\" set "APPDIR=%APPDIR:~0,-1%"
+
+start "" "%ELECTRON%" "%APPDIR%"
 exit /b 0
