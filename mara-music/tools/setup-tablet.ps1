@@ -32,7 +32,13 @@ function Invoke-Native {
   $ErrorActionPreference = 'Continue'
   try {
     $output = & $Exe @Arguments 2>&1
-    if ($Show) { $output | Select-Object -Last 3 | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkGray } }
+    if ($Show) {
+      # أسطر npm الأخيرة دائمًا "notice" ومسار السجل — السبب الحقيقي
+      # يسبقها. نعرض أسطر الخطأ نفسها وإلا بقي العطل مجهولًا.
+      $errors = @($output | Where-Object { "$_" -match 'npm (error|ERR!)' -and "$_" -notmatch 'A complete log' })
+      $lines = if ($errors.Count) { $errors | Select-Object -First 8 } else { $output | Select-Object -Last 4 }
+      $lines | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkGray }
+    }
   } finally {
     $ErrorActionPreference = $previous
   }
