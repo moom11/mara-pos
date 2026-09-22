@@ -914,6 +914,14 @@ async function main() {
   check('التثبيت يمدّد مهلة الشبكة البطيئة', /fetch-timeout=\d{6,}/.test(setupSource));
   check('التثبيت يعيد المحاولة بعد انقطاع الشبكة', /fetch-retries=[3-9]/.test(setupSource));
   check('التثبيت يستأنف بدل إعادة كل شيء', /already installed - skipping/.test(setupSource));
+  /*
+   * نواة الصوت ينزّلها Electron بمنزّل خاص لا يقرأ مهلات npm، فيسقط
+   * بـ ECONNRESET على شبكة متقطّعة ويُسقط التثبيت كله. ننزّلها بأنفسنا.
+   */
+  check('التثبيت يوقف منزّل Electron الخاص', /--ignore-scripts/.test(setupSource));
+  check('التثبيت ينزّل نواة الصوت بمنزّل يعيد المحاولة', /function Get-FileWithRetry/.test(setupSource));
+  check('التثبيت يحذف الملف الناقص بدل قبوله', /Remove-Item \$Destination/.test(setupSource));
+  check('التثبيت يملك مصدرًا بديلًا للنواة', /npmmirror\.com\/mirrors\/electron/.test(setupSource));
   check('اسم ملف التثبيت إنجليزي ليعبر فك الضغط', /^[\x20-\x7e]+$/.test('Setup-Mara-Tablet.bat'));
 
   /*

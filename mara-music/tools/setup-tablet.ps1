@@ -45,6 +45,35 @@ function Invoke-Native {
   return $LASTEXITCODE
 }
 
+<#
+  تنزيل ملف كبير على شبكة متقطّعة. نجرّب BITS أولًا لأنه خدمة ويندوز
+  تستأنف بعد الانقطاع، ثم التنزيل العادي، ثم نعيد الكرّة بتباعد متزايد.
+  الملف الناقص يُحذف: ملف نصف منزّل أسوأ من لا شيء لأنه يبدو ناجحًا.
+#>
+function Get-FileWithRetry {
+  param([string[]]$Urls, [string]$Destination, [int]$MinBytes = 1MB, [int]$Attempts = 5)
+  foreach ($url in $Urls) {
+    for ($i = 1; $i -le $Attempts; $i += 1) {
+      Remove-Item $Destination -Force -ErrorAction SilentlyContinue
+      try {
+        try {
+          Start-BitsTransfer -Source $url -Destination $Destination -ErrorAction Stop
+        } catch {
+          Invoke-WebRequest -Uri $url -OutFile $Destination -UseBasicParsing -TimeoutSec 1800
+        }
+        if ((Test-Path $Destination) -and (Get-Item $Destination).Length -ge $MinBytes) { return $true }
+        Info "attempt $i : file came incomplete"
+      } catch {
+        Info "attempt $i : $($_.Exception.Message)"
+      }
+      Start-Sleep -Seconds ([math]::Min(45, 5 * $i))
+    }
+    Info 'trying a different source'
+  }
+  Remove-Item $Destination -Force -ErrorAction SilentlyContinue
+  return $false
+}
+
 function Step($n, $text) { Write-Host "`n[$n] $text" -ForegroundColor Cyan }
 function Ok($text) { Write-Host "    OK  $text" -ForegroundColor Green }
 function Info($text) { Write-Host "    $text" -ForegroundColor Gray }
@@ -157,7 +186,8 @@ try {
 
   # ---------------------------------------------------------- 5) المكتبات
   Step 5 'Installing the audio engine (about 400 MB)'
-  $electron = Join-Path $appDir 'node_modules\electron\dist\electron.exe'
+  $electronDir = Join-Path $appDir 'node_modules\electron'
+  $electron = Join-Path $electronDir 'dist\electron.exe'
 
   if (Test-Path $electron) {
     Ok 'already installed - skipping'
@@ -166,45 +196,65 @@ try {
     Info 'the window may look frozen - that is normal, do not close it'
 
     <#
-      مهلات سخية عمدًا: شبكة المحل بطيئة، وقياسنا أظهر عشر ثوانٍ لحزمة
-      صغيرة. المهلة الافتراضية تقطع تنزيل محرّك الصوت (ملف واحد ~100 ميجا)
-      قبل أن يكتمل، فيفشل التثبيت رغم سلامة كل شيء.
+      نفصل الخطوة إلى نصفين عن عمد.
+
+      نواة الصوت (100 ميجا من GitHub) ينزّلها Electron بمنزّل خاص به
+      لا يقرأ مهلات npm ولا يعيد المحاولة كما ينبغي، فيسقط بـ ECONNRESET
+      على شبكة متقطّعة ويُسقط معه التثبيت كله. لذلك نوقف سكربتات ما بعد
+      التثبيت، وننزّل النواة بأنفسنا بمنزّل يستأنف ويعيد المحاولة.
     #>
+    Info 'part 1 of 2: libraries'
     $npmArgs = @(
-      'install', '--no-audit', '--no-fund',
+      'install', '--no-audit', '--no-fund', '--ignore-scripts',
       '--fetch-timeout=900000',
       '--fetch-retries=8',
       '--fetch-retry-mintimeout=20000',
       '--fetch-retry-maxtimeout=180000'
     )
-
     Push-Location $appDir
     try {
       # npm يكتب تحذيراته على قناة الخطأ أيضًا — نفس فخ git
       $code = Invoke-Native $npm $npmArgs -Show
       if ($code -ne 0) {
-        Info 'first attempt failed - retrying once (finished parts are kept)'
+        Info 'retrying once (finished parts are kept)'
         $code = Invoke-Native $npm $npmArgs -Show
       }
     } finally {
       Pop-Location
     }
-
-    # تسقط أحيانًا نواة الصوت وحدها (ملف كبير من GitHub) بعد نجاح بقية
-    # الحزم — فنعيد تنزيلها وحدها بدل إعادة 400 ميجا من البداية.
-    if (-not (Test-Path $electron) -and (Test-Path (Join-Path $appDir 'node_modules\electron\install.js'))) {
-      Info 'engine core missing - fetching just that part'
-      Push-Location $appDir
-      try { Invoke-Native $node @('node_modules\electron\install.js') -Show | Out-Null }
-      finally { Pop-Location }
+    if (-not (Test-Path (Join-Path $electronDir 'package.json'))) {
+      Fail 'libraries did not install - run this file again'
+      exit 1
     }
+    Ok 'libraries ready'
+
+    Info 'part 2 of 2: audio core (about 100 MB)'
+    $electronVersion = (Get-Content (Join-Path $electronDir 'package.json') -Raw | ConvertFrom-Json).version
+    $zipName = "electron-v$electronVersion-win32-x64.zip"
+    $zipPath = Join-Path $env:TEMP $zipName
+    $sources = @(
+      "https://github.com/electron/electron/releases/download/v$electronVersion/$zipName",
+      "https://npmmirror.com/mirrors/electron/$electronVersion/$zipName"
+    )
+
+    if (-not (Get-FileWithRetry -Urls $sources -Destination $zipPath -MinBytes 50MB)) {
+      Fail 'could not download the audio core'
+      Info 'The connection kept dropping. Run this file again on a better network -'
+      Info 'everything else is already saved, only this part remains.'
+      exit 1
+    }
+
+    $distDir = Join-Path $electronDir 'dist'
+    Remove-Item $distDir -Recurse -Force -ErrorAction SilentlyContinue
+    Expand-Archive $zipPath -DestinationPath $distDir -Force
+    Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
+    # نفس ما يكتبه مثبّت Electron — تقرأه بعض الأدوات لتعرف اسم الملف
+    Set-Content (Join-Path $electronDir 'path.txt') 'electron.exe' -NoNewline -Encoding ASCII
   }
 
   if (-not (Test-Path $electron)) {
     Fail 'the audio engine did not install'
-    Info 'The connection is most likely too slow or it dropped.'
     Info 'Run this file again - finished parts are kept, it resumes.'
-    Info 'A faster network makes this step much easier.'
     exit 1
   }
   Ok 'engine ready'
