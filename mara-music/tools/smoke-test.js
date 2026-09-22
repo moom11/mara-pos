@@ -932,6 +932,15 @@ async function main() {
   check('التثبيت ينزّل نواة الصوت بمنزّل يعيد المحاولة', /function Get-FileWithRetry/.test(setupSource));
   check('التثبيت يحذف الملف الناقص بدل قبوله', /Remove-Item \$Destination/.test(setupSource));
   check('التثبيت يملك مصدرًا بديلًا للنواة', /npmmirror\.com\/mirrors\/electron/.test(setupSource));
+
+  check('توجد أداة إصلاح تنازع النسختين',
+    fs.existsSync(path.join(projectRoot, 'Fix-Mara-Tablet.bat'))
+    && fs.existsSync(path.join(projectRoot, 'tools', 'fix-tablet.ps1')));
+  const fixSource = fs.readFileSync(path.join(projectRoot, 'tools', 'fix-tablet.ps1'), 'utf8');
+  check('الإصلاح لا يحذف مجلد الأغاني', !/Remove-Item[^\n]*MaraMusic/i.test(fixSource));
+  check('الإصلاح لا يحذف بيانات البرنامج', !/Remove-Item[^\n]*APPDATA/i.test(fixSource));
+  // بلا هذا الفحص لا نعرف أي نسخة يتحكّم بها الجوال فعلًا
+  check('الإصلاح يثبت أي نسخة تخدم المنفذ', /Get-NetTCPConnection -LocalPort 8787/.test(fixSource));
   check('اسم ملف التثبيت إنجليزي ليعبر فك الضغط', /^[\x20-\x7e]+$/.test('Setup-Mara-Tablet.bat'));
 
   /*
