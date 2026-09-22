@@ -392,7 +392,7 @@ class Player extends EventEmitter {
         return false;
       }
       // نهاية القائمة: نعيد الخلط ونبدأ من جديد
-      if (this.state.shuffle) this.order = shuffled(this.playlists.trackIdsOf(this.state.sourceId));
+      if (this.state.shuffle) this.order = this.reshuffleAvoidingCurrent();
       return this.playAt(0);
     }
     return this.playAt(nextPos);
@@ -878,6 +878,20 @@ class Player extends EventEmitter {
     });
   }
 
+  /**
+   * خلط جديد عند نهاية القائمة، مع ضمان ألا يبدأ بالأغنية الحالية.
+   * بدون هذا الضمان تُعزف الأغنية نفسها مرتين متتاليتين كلما صادف الخلط
+   * أن وضعها أولًا — يلاحظه الزبون ويبدو عطلًا.
+   */
+  reshuffleAvoidingCurrent() {
+    const ids = shuffled(this.playlists.trackIdsOf(this.state.sourceId));
+    if (ids.length > 1 && ids[0] === this.state.currentId) {
+      const swapAt = 1 + Math.floor(Math.random() * (ids.length - 1));
+      [ids[0], ids[swapAt]] = [ids[swapAt], ids[0]];
+    }
+    return ids;
+  }
+
   peekNext() {
     if (this.state.queue.length) {
       return { id: this.state.queue[0], fromQueue: true };
@@ -891,7 +905,7 @@ class Player extends EventEmitter {
       return { id: this.order[nextPos], orderPos: nextPos };
     }
     if (this.state.repeat === 'off') return null;
-    const reshuffled = this.state.shuffle ? shuffled(this.playlists.trackIdsOf(this.state.sourceId)) : this.order;
+    const reshuffled = this.state.shuffle ? this.reshuffleAvoidingCurrent() : this.order;
     if (!reshuffled.length) return null;
     return { id: reshuffled[0], orderPos: 0, reshuffle: this.state.shuffle, reshuffledOrder: reshuffled };
   }

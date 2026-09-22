@@ -20,6 +20,25 @@ param(
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue' # يسرّع التنزيل كثيرًا في PowerShell 5
 
+<#
+  git و npm يكتبان رسائلهما الطبيعية على قناة الخطأ ("Cloning into…"،
+  تحذيرات npm). مع ErrorActionPreference=Stop يحوّلها PowerShell إلى
+  أخطاء قاتلة فيتوقف التثبيت رغم نجاح الأمر. نرخّي الإعداد أثناء النداء
+  فقط، ونحكم على النجاح من رمز الخروج وحده.
+#>
+function Invoke-Native {
+  param([string]$Exe, [string[]]$Arguments, [switch]$Show)
+  $previous = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  try {
+    $output = & $Exe @Arguments 2>&1
+    if ($Show) { $output | Select-Object -Last 3 | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkGray } }
+  } finally {
+    $ErrorActionPreference = $previous
+  }
+  return $LASTEXITCODE
+}
+
 function Step($n, $text) { Write-Host "`n[$n] $text" -ForegroundColor Cyan }
 function Ok($text) { Write-Host "    OK  $text" -ForegroundColor Green }
 function Info($text) { Write-Host "    $text" -ForegroundColor Gray }
@@ -108,14 +127,23 @@ try {
   Step 4 'Getting program files'
   if (Test-Path (Join-Path $srcDir '.git')) {
     Info 'updating existing copy'
-    & $git -C $srcDir fetch origin $Branch 2>&1 | Out-Null
-    if ($LASTEXITCODE -ne 0) { Fail 'could not reach the repository - check the internet'; exit 1 }
-    & $git -C $srcDir checkout $Branch 2>&1 | Out-Null
-    & $git -C $srcDir reset --hard "origin/$Branch" 2>&1 | Out-Null
+    if ((Invoke-Native $git @('-C', $srcDir, 'fetch', 'origin', $Branch)) -ne 0) {
+      Fail 'could not reach the repository - check the internet'; exit 1
+    }
+    Invoke-Native $git @('-C', $srcDir, 'checkout', $Branch) | Out-Null
+    if ((Invoke-Native $git @('-C', $srcDir, 'reset', '--hard', "origin/$Branch")) -ne 0) {
+      Fail 'could not update the program files'; exit 1
+    }
   } else {
+    # بقايا محاولة سابقة: git يرفض الاستنساخ في مجلد غير فارغ
+    if (Test-Path $srcDir) {
+      Info 'removing an incomplete previous download'
+      Remove-Item $srcDir -Recurse -Force
+    }
     Info 'first download - a GitHub sign-in may open once'
-    & $git clone --branch $Branch --depth 20 $Repo $srcDir 2>&1 | Out-Null
-    if ($LASTEXITCODE -ne 0) { Fail 'download failed - check internet and GitHub sign-in'; exit 1 }
+    if ((Invoke-Native $git @('clone', '--branch', $Branch, '--depth', '20', $Repo, $srcDir)) -ne 0) {
+      Fail 'download failed - check internet and GitHub sign-in'; exit 1
+    }
   }
   if (-not (Test-Path (Join-Path $appDir 'package.json'))) { Fail 'program files are missing'; exit 1 }
   $version = (Get-Content (Join-Path $appDir 'package.json') -Raw | ConvertFrom-Json).version
@@ -125,7 +153,8 @@ try {
   Step 5 'Installing the audio engine (about 400 MB, takes a few minutes)'
   Push-Location $appDir
   try {
-    & $npm install --no-audit --no-fund 2>&1 | Select-Object -Last 3 | ForEach-Object { Info $_ }
+    # npm يكتب تحذيراته على قناة الخطأ أيضًا — نفس الفخ
+    Invoke-Native $npm @('install', '--no-audit', '--no-fund') -Show | Out-Null
   } finally {
     Pop-Location
   }

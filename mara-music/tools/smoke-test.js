@@ -235,6 +235,14 @@ async function main() {
   check('رابط البث يحمل الرمز الداخلي', commands.find((c) => c.type === 'load').url.includes('?t='));
   check('جُهّزت الأغنية التالية مسبقًا', !!fake.preloaded && fake.preloaded !== tracks[0].id);
 
+  // عند نهاية القائمة يُعاد الخلط — ويجب ألا يبدأ بالأغنية الحالية،
+  // وإلا عُزفت مرتين متتاليتين. فحص متكرر لأن العيب احتمالي.
+  let sameTwice = 0;
+  for (let i = 0; i < 300; i += 1) {
+    if (player.reshuffleAvoidingCurrent()[0] === player.state.currentId) sameTwice += 1;
+  }
+  check('إعادة الخلط لا تكرّر الأغنية الحالية مباشرة', sameTwice === 0, `تكرّرت ${sameTwice} مرة`);
+
   const beforeNext = player.state.currentId;
   simulateEnd();
   check('الانتقال التلقائي عند انتهاء الأغنية', player.state.currentId !== beforeNext);
@@ -903,6 +911,19 @@ async function main() {
   check('التثبيت لا يحذف بيانات البرنامج', !/Remove-Item[^\n]*APPDATA/i.test(setupSource));
   check('التثبيت يوقف البرنامج قبل استبدال ملفاته', /Stop-Process/.test(setupSource));
   check('اسم ملف التثبيت إنجليزي ليعبر فك الضغط', /^[\x20-\x7e]+$/.test('Setup-Mara-Tablet.bat'));
+
+  /*
+   * حارس ضد خطأ كلّفنا محاولة تثبيت كاملة: git و npm يكتبان رسائلهما
+   * الطبيعية على قناة الخطأ، ومع ErrorActionPreference=Stop تتحوّل إلى
+   * أخطاء قاتلة. كل نداء لهما يجب أن يمرّ عبر دالة ترخّي الإعداد.
+   */
+  for (const [name, source, helper] of [
+    ['التثبيت', setupSource, 'Invoke-Native'],
+    ['التحديث', updateSource, 'Invoke-Git']
+  ]) {
+    check(`سكربت ${name} يعزل رسائل git العادية عن الأخطاء`, source.includes(`function ${helper}`));
+    check(`سكربت ${name} لا ينادي git أو npm مباشرة`, !/&\s+\$(git|npm)\b/.test(source));
+  }
 
   const psFiles = fs.readdirSync(path.join(projectRoot, 'tools')).filter((f) => f.endsWith('.ps1'));
   const psWithoutBom = psFiles.filter((f) => !fs.readFileSync(path.join(projectRoot, 'tools', f)).slice(0, 3).equals(Buffer.from([0xef, 0xbb, 0xbf])));
