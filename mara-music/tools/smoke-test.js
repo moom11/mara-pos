@@ -910,6 +910,10 @@ async function main() {
   check('التثبيت لا يحذف مجلد الأغاني', !/Remove-Item[^\n]*MaraMusic/i.test(setupSource));
   check('التثبيت لا يحذف بيانات البرنامج', !/Remove-Item[^\n]*APPDATA/i.test(setupSource));
   check('التثبيت يوقف البرنامج قبل استبدال ملفاته', /Stop-Process/.test(setupSource));
+  // شبكة المحل بطيئة: المهلة الافتراضية تقطع تنزيل محرّك الصوت قبل اكتماله
+  check('التثبيت يمدّد مهلة الشبكة البطيئة', /fetch-timeout=\d{6,}/.test(setupSource));
+  check('التثبيت يعيد المحاولة بعد انقطاع الشبكة', /fetch-retries=[3-9]/.test(setupSource));
+  check('التثبيت يستأنف بدل إعادة كل شيء', /already installed - skipping/.test(setupSource));
   check('اسم ملف التثبيت إنجليزي ليعبر فك الضغط', /^[\x20-\x7e]+$/.test('Setup-Mara-Tablet.bat'));
 
   /*

@@ -156,16 +156,57 @@ try {
   Ok "version $version"
 
   # ---------------------------------------------------------- 5) المكتبات
-  Step 5 'Installing the audio engine (about 400 MB, takes a few minutes)'
-  Push-Location $appDir
-  try {
-    # npm يكتب تحذيراته على قناة الخطأ أيضًا — نفس الفخ
-    Invoke-Native $npm @('install', '--no-audit', '--no-fund') -Show | Out-Null
-  } finally {
-    Pop-Location
-  }
+  Step 5 'Installing the audio engine (about 400 MB)'
   $electron = Join-Path $appDir 'node_modules\electron\dist\electron.exe'
-  if (-not (Test-Path $electron)) { Fail 'the audio engine did not install - run this again'; exit 1 }
+
+  if (Test-Path $electron) {
+    Ok 'already installed - skipping'
+  } else {
+    Info 'on a slow connection this can take 15-30 minutes'
+    Info 'the window may look frozen - that is normal, do not close it'
+
+    <#
+      مهلات سخية عمدًا: شبكة المحل بطيئة، وقياسنا أظهر عشر ثوانٍ لحزمة
+      صغيرة. المهلة الافتراضية تقطع تنزيل محرّك الصوت (ملف واحد ~100 ميجا)
+      قبل أن يكتمل، فيفشل التثبيت رغم سلامة كل شيء.
+    #>
+    $npmArgs = @(
+      'install', '--no-audit', '--no-fund',
+      '--fetch-timeout=900000',
+      '--fetch-retries=8',
+      '--fetch-retry-mintimeout=20000',
+      '--fetch-retry-maxtimeout=180000'
+    )
+
+    Push-Location $appDir
+    try {
+      # npm يكتب تحذيراته على قناة الخطأ أيضًا — نفس فخ git
+      $code = Invoke-Native $npm $npmArgs -Show
+      if ($code -ne 0) {
+        Info 'first attempt failed - retrying once (finished parts are kept)'
+        $code = Invoke-Native $npm $npmArgs -Show
+      }
+    } finally {
+      Pop-Location
+    }
+
+    # تسقط أحيانًا نواة الصوت وحدها (ملف كبير من GitHub) بعد نجاح بقية
+    # الحزم — فنعيد تنزيلها وحدها بدل إعادة 400 ميجا من البداية.
+    if (-not (Test-Path $electron) -and (Test-Path (Join-Path $appDir 'node_modules\electron\install.js'))) {
+      Info 'engine core missing - fetching just that part'
+      Push-Location $appDir
+      try { Invoke-Native $node @('node_modules\electron\install.js') -Show | Out-Null }
+      finally { Pop-Location }
+    }
+  }
+
+  if (-not (Test-Path $electron)) {
+    Fail 'the audio engine did not install'
+    Info 'The connection is most likely too slow or it dropped.'
+    Info 'Run this file again - finished parts are kept, it resumes.'
+    Info 'A faster network makes this step much easier.'
+    exit 1
+  }
   Ok 'engine ready'
 
   # ----------------------------------------------------------- 6) الاختصار
