@@ -894,6 +894,16 @@ async function main() {
   check('التحديث يوقف البرنامج قبل استبدال ملفاته', /Stop-Process/.test(updateSource));
   check('التحديث يحفظ نسخة احتياطية قبل الاستبدال', /_src-backup/.test(updateSource));
 
+  check('توجد أداة التثبيت على جهاز جديد',
+    fs.existsSync(path.join(projectRoot, 'Setup-Mara-Tablet.bat'))
+    && fs.existsSync(path.join(projectRoot, 'tools', 'setup-tablet.ps1')));
+  const setupSource = fs.readFileSync(path.join(projectRoot, 'tools', 'setup-tablet.ps1'), 'utf8');
+  // الحارس الأهم: مثبّت يمسح أغاني المحل أو إعداداته كارثة لا خطأ
+  check('التثبيت لا يحذف مجلد الأغاني', !/Remove-Item[^\n]*MaraMusic/i.test(setupSource));
+  check('التثبيت لا يحذف بيانات البرنامج', !/Remove-Item[^\n]*APPDATA/i.test(setupSource));
+  check('التثبيت يوقف البرنامج قبل استبدال ملفاته', /Stop-Process/.test(setupSource));
+  check('اسم ملف التثبيت إنجليزي ليعبر فك الضغط', /^[\x20-\x7e]+$/.test('Setup-Mara-Tablet.bat'));
+
   const psFiles = fs.readdirSync(path.join(projectRoot, 'tools')).filter((f) => f.endsWith('.ps1'));
   const psWithoutBom = psFiles.filter((f) => !fs.readFileSync(path.join(projectRoot, 'tools', f)).slice(0, 3).equals(Buffer.from([0xef, 0xbb, 0xbf])));
   check('ملفات ps1 تحمل BOM (وإلا تشوّهت العربية)', psWithoutBom.length === 0, psWithoutBom.join(', '));
