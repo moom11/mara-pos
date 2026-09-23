@@ -44,6 +44,7 @@ const { Scheduler } = require('../src/main/scheduler');
 const { Auth } = require('../src/main/auth');
 const { createServer } = require('../src/main/server');
 const { prayerTimes, formatMinutes } = require('../src/main/prayer');
+const { loadWebApp } = require('./web-harness');
 
 let passed = 0;
 let failed = 0;
@@ -987,6 +988,65 @@ async function main() {
   check('أي مسار يعيد التطبيق (SPA)', spa.status === 200);
   const api404 = await fetch(`${base}/api/nope`);
   check('مسار API غير معروف يعيد 404', api404.status === 404);
+
+  section('واجهة الجوال');
+
+  /*
+    هذه الاختبارات تشغّل src/web/app.js فعلًا مقابل الخادم أعلاه. سببها خطأ
+    وصل إلى جوال صاحب المطعم: متغيّر عُرِّف داخل try واستُعمل خارجه، فانقطع
+    التنفيذ بعد إخفاء شاشة الرمز وقبل إظهار التطبيق، فظهرت شاشة سوداء بلا
+    أي رسالة. الاختبار الحاسم هنا: ألّا تبقى كل الشاشات مخفية.
+  */
+  const appSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'web', 'app.js'), 'utf8');
+  const indexHtml = fs.readFileSync(path.join(__dirname, '..', 'src', 'web', 'index.html'), 'utf8');
+  const htmlIds = new Set([...indexHtml.matchAll(/\bid="([^"]+)"/g)].map((m) => m[1]));
+  const wanted = new Set([...appSource.matchAll(/\$\('([^']+)'\)/g)].map((m) => m[1]));
+  const absent = [...wanted].filter((id) => !htmlIds.has(id));
+  check('كل عنصر تطلبه الواجهة موجود في الصفحة', absent.length === 0, absent.join(', '));
+
+  const noScreen = (h) => ['app', 'view-login', 'view-license'].every((id) => h.$(id).hidden);
+  // خطأ غير ملتقط في الواجهة = شاشة سوداء على الجوال، فنجمعه بدل أن يُسقط الاختبار
+  const uiErrors = [];
+  process.on('unhandledRejection', (e) => uiErrors.push((e && e.message) || String(e)));
+
+  const fresh = loadWebApp({ base });
+  check('قبل الدخول تظهر شاشة الرمز', fresh.$('view-login').hidden === false);
+  check('قبل الدخول لا يظهر التطبيق', fresh.$('app').hidden === true);
+
+  // رمز الموظّف صار 2222 في اختبار الإعدادات أعلاه
+  const why = (h) => `رمز=${h.token} خطأ=${h.$('login-error').textContent}`;
+  await fresh.login('2222');
+  check('الدخول برمز رباعي يفتح التطبيق', fresh.$('app').hidden === false, why(fresh));
+  check('بعد الدخول تُخفى شاشة الرمز', fresh.$('view-login').hidden === true);
+  check('بعد الدخول لا تبقى الشاشة سوداء', !noScreen(fresh), fresh.$('login-error').textContent);
+
+  const admin = loadWebApp({ base });
+  await admin.login('123456');
+  check('الدخول برمز أطول من أربعة أرقام يعمل (مفتاح دخول)', admin.$('app').hidden === false, why(admin));
+  check('رمز المدير يعطي صلاحية المدير', admin.window.__mara.app.role === 'admin');
+
+  const wrong = loadWebApp({ base });
+  await wrong.login('9999');
+  check('الرمز الخاطئ يُبقي شاشة الرمز ظاهرة', wrong.$('view-login').hidden === false);
+  check('الرمز الخاطئ لا يعطي شاشة سوداء', !noScreen(wrong));
+  check('الرمز الخاطئ يُظهر رسالة', wrong.$('login-error').textContent.length > 0);
+
+  // فتح التطبيق ثانيةً بجلسة محفوظة: المسار الذي انكسر على الجوال فعلًا
+  const returning = loadWebApp({ base, token: fresh.token });
+  await returning.settle();
+  check('فتح التطبيق بجلسة محفوظة يعرض التطبيق مباشرة', returning.$('app').hidden === false);
+  check('فتح التطبيق بجلسة محفوظة لا يعطي شاشة سوداء', !noScreen(returning));
+
+  const expired = loadWebApp({ base, token: 'رمز-منتهٍ' });
+  await expired.settle();
+  check('جلسة منتهية تعيد شاشة الرمز لا شاشة سوداء', expired.$('view-login').hidden === false);
+
+  check('لا خطأ غير ملتقط أثناء تشغيل الواجهة', uiErrors.length === 0, uiErrors.join(' | '));
+
+  // عامل الخدمة: تخزين الصفحة والسكربت كان يخلط نسخة قديمة بأخرى جديدة
+  const swSource = await (await fetch(`${base}/sw.js`)).text();
+  check('عامل الخدمة لا يخزّن صفحة الواجهة', !/'index\.html'|"index\.html"/.test(swSource));
+  check('عامل الخدمة لا يخزّن app.js', !/'app\.js'|"app\.js"/.test(swSource));
 
   // ==================================================== النتيجة
 

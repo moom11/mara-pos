@@ -10,6 +10,41 @@ const el = (tag, className, text) => {
   return node;
 };
 
+// ======================================================= شبكة أمان الواجهة
+
+/*
+  كل شاشات الواجهة مخفية بالخاصية hidden، وتُظهر واحدة منها عند الإقلاع.
+  فإن انقطع التنفيذ بخطأ قبل ذلك بقيت كلها مخفية وظهرت شاشة سوداء بلا سبب
+  ظاهر. الجوال لا أدوات مطوّر فيه، فنعرض نص الخطأ على الشاشة نفسها.
+*/
+function screensAllHidden() {
+  return ['app', 'view-login', 'view-license'].every((id) => {
+    const node = document.getElementById(id);
+    return !node || node.hidden;
+  });
+}
+
+function showFatal(message) {
+  if (!document.body || !screensAllHidden()) return; // خطأ عابر بعد ظهور الواجهة: لا يحجبها
+  let box = document.getElementById('fatal-error');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'fatal-error';
+    // الأنماط مضمّنة عمدًا: قد يكون ملف الأنماط نفسه هو ما لم يصل
+    box.style.cssText = 'position:fixed;inset:0;z-index:9999;padding:24px;overflow:auto;'
+      + 'white-space:pre-wrap;direction:rtl;text-align:right;background:#140c0c;color:#ffd7d7;'
+      + 'font:14px/1.8 system-ui,-apple-system,sans-serif';
+    document.body.appendChild(box);
+  }
+  box.textContent = `تعذّر فتح الواجهة\n\n${message}\n\n`
+    + 'أغلق الصفحة وافتحها من جديد. إن تكرّر الخطأ أرسل صورة هذه الشاشة.';
+}
+
+window.addEventListener('error', (e) => showFatal(e.message || 'خطأ غير معروف'));
+window.addEventListener('unhandledrejection', (e) => {
+  showFatal((e.reason && e.reason.message) || String(e.reason || 'خطأ غير معروف'));
+});
+
 const store = {
   get token() { return localStorage.getItem('mara.token'); },
   set token(v) { v ? localStorage.setItem('mara.token', v) : localStorage.removeItem('mara.token'); },
@@ -64,20 +99,37 @@ const cmd = (action, body) => api(`/api/player/${action}`, { method: 'POST', bod
 
 let pinBuffer = '';
 
+/*
+  الإرسال التلقائي عند أربعة أرقام يريح صاحب الرمز الرباعي. لكنه وحده كان
+  يمنع الرموز الأطول: يرسل أول أربعة، يفشل، يمسح المكتوب، فلا يكتمل رمز
+  من ستة أرقام أبدًا. فأضفنا مفتاح الدخول، وأطفأنا الإرسال التلقائي بعد
+  أول محاولة فاشلة حتى يُكمل صاحب الرمز الطويل رمزه ثم يضغط دخول.
+*/
+let autoSubmitPin = true;
+
 function setupKeypad() {
   const pad = $('keypad');
   const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'مسح', '0', '⌫'];
   for (const key of keys) {
     const btn = el('button', 'key', key);
+    btn.dataset.key = key;
     btn.addEventListener('click', () => {
       if (key === '⌫') pinBuffer = pinBuffer.slice(0, -1);
       else if (key === 'مسح') pinBuffer = '';
       else if (pinBuffer.length < 10) pinBuffer += key;
       paintPin();
-      if (pinBuffer.length >= 4) tryLogin();
+      if (autoSubmitPin && pinBuffer.length === 4) tryLogin();
     });
     pad.appendChild(btn);
   }
+
+  const enter = el('button', 'key enter', 'دخول');
+  enter.dataset.key = 'enter';
+  enter.addEventListener('click', () => {
+    if (pinBuffer.length >= 4) tryLogin();
+  });
+  pad.appendChild(enter);
+
   paintPin();
 }
 
@@ -98,7 +150,11 @@ async function tryLogin() {
     });
     const data = await res.json();
     if (!res.ok) {
-      $('login-error').textContent = data.error || 'تعذّر الدخول';
+      const wasAuto = autoSubmitPin;
+      autoSubmitPin = false;
+      $('login-error').textContent = wasAuto
+        ? 'رمز غير صحيح. اكتب الرمز كاملًا ثم اضغط دخول.'
+        : (data.error || 'تعذّر الدخول');
       pinBuffer = '';
       paintPin();
       return;
@@ -109,6 +165,8 @@ async function tryLogin() {
     pinBuffer = '';
     await start();
   } catch (err) {
+    // إن وقع الخطأ بعد إخفاء شاشة الرمز بقيت الشاشات كلها مخفية: شاشة سوداء
+    if (screensAllHidden()) $('view-login').hidden = false;
     $('login-error').textContent = 'تعذّر الاتصال بجهاز المطعم';
   } finally {
     loginBusy = false;
@@ -130,16 +188,17 @@ function logout(silent) {
 // ================================================================ الإقلاع
 
 async function start() {
+  let me;
   try {
-    const me = await api('/api/me');
-    app.role = me.role;
-    app.maxVolume = me.maxVolume;
-    app.canPause = me.canPause;
-    store.role = me.role;
+    me = await api('/api/me');
   } catch (err) {
     logout(true);
     return;
   }
+  app.role = me.role;
+  app.maxVolume = me.maxVolume;
+  app.canPause = me.canPause;
+  store.role = me.role;
 
   $('view-login').hidden = true;
 
