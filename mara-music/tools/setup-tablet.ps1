@@ -264,16 +264,32 @@ try {
   # نسخة النظام القديمة تتنازع على المنفذ نفسه — نمنع تشغيلها التلقائي
   Remove-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'Mara Music' -ErrorAction SilentlyContinue
 
-  $launcher = Join-Path $appDir 'تشغيل-مارا.bat'
-  $shell = New-Object -ComObject WScript.Shell
-  $link = $shell.CreateShortcut((Join-Path ([Environment]::GetFolderPath('Desktop')) 'Mara Music.lnk'))
-  $link.TargetPath = $launcher
-  $link.WorkingDirectory = $appDir
+  <#
+    نسخة باسم البرنامج بجانب electron.exe: ويندوز يسمّي التطبيق في شريط
+    المهام ومدير المهام باسم الملف التنفيذي، فتظهر "Mara Music" لا
+    "electron". والاختصار يشير إليها مباشرة فلا تظهر نافذة سوداء كما
+    يحدث مع ملف bat.
+  #>
+  $distDir = Join-Path $appDir 'node_modules\electron\dist'
+  $appExe = Join-Path $distDir 'Mara Music.exe'
+  Copy-Item (Join-Path $distDir 'electron.exe') $appExe -Force
+
   $icon = Join-Path $appDir 'src\assets\icon.ico'
-  if (Test-Path $icon) { $link.IconLocation = $icon }
-  $link.Description = 'Mara Music'
-  $link.Save()
-  Ok 'shortcut created on the Desktop'
+  $shell = New-Object -ComObject WScript.Shell
+  foreach ($linkPath in @(
+    (Join-Path ([Environment]::GetFolderPath('Desktop')) 'Mara Music.lnk'),
+    (Join-Path ([Environment]::GetFolderPath('StartMenu')) 'Programs\Mara Music.lnk')
+  )) {
+    New-Item -ItemType Directory -Force -Path (Split-Path $linkPath -Parent) | Out-Null
+    $link = $shell.CreateShortcut($linkPath)
+    $link.TargetPath = $appExe
+    $link.Arguments = "`"$appDir`""
+    $link.WorkingDirectory = $appDir
+    if (Test-Path $icon) { $link.IconLocation = $icon }
+    $link.Description = 'Mara Music'
+    $link.Save()
+  }
+  Ok 'desktop and start menu shortcuts created'
 
   # ------------------------------------------------------------- النتيجة
   Write-Host ''

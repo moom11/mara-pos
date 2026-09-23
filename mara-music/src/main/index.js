@@ -258,6 +258,10 @@ function pushScreen(port) {
 
 async function boot() {
   setupLogging();
+
+  // هوية التطبيق في ويندوز: بدونها يظهر باسم Electron في شريط المهام
+  // ولا يُثبَّت عليه بشكل صحيح، حتى مع وجود أيقونة للنافذة.
+  if (process.platform === 'win32') app.setAppUserModelId('sa.mara.music');
   loadSettings();
 
   library = new Library();

@@ -941,6 +941,19 @@ async function main() {
   check('الإصلاح لا يحذف بيانات البرنامج', !/Remove-Item[^\n]*APPDATA/i.test(fixSource));
   // بلا هذا الفحص لا نعرف أي نسخة يتحكّم بها الجوال فعلًا
   check('الإصلاح يثبت أي نسخة تخدم المنفذ', /Get-NetTCPConnection -LocalPort 8787/.test(fixSource));
+
+  /*
+   * ليبدو تطبيقًا حقيقيًا: ويندوز يسمّيه باسم ملفه التنفيذي، والاختصار
+   * إلى ملف bat يفتح نافذة سوداء. لذلك ننسخ electron.exe باسم البرنامج
+   * ونشير للاختصار إليه مباشرة.
+   */
+  for (const [name, source] of [['التثبيت', setupSource], ['الإصلاح', fixSource]]) {
+    check(`${name} ينشئ نسخة باسم البرنامج`, /Mara Music\.exe/.test(source));
+    check(`${name} يشير الاختصار للتطبيق لا لملف bat`, /\$link\.TargetPath = \$appExe/.test(source));
+    check(`${name} ينشئ اختصار قائمة ابدأ`, /GetFolderPath\('StartMenu'\)/.test(source));
+  }
+  const indexSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'main', 'index.js'), 'utf8');
+  check('البرنامج يعلن هويته لويندوز', /setAppUserModelId/.test(indexSource));
   check('اسم ملف التثبيت إنجليزي ليعبر فك الضغط', /^[\x20-\x7e]+$/.test('Setup-Mara-Tablet.bat'));
 
   /*

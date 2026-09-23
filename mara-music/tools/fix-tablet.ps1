@@ -87,9 +87,42 @@ try {
   $version = (Get-Content (Join-Path $AppDir 'package.json') -Raw | ConvertFrom-Json).version
   Ok "version $version"
 
-  # -------------------------------------------------------------- 4) التشغيل
-  Step 4 'Starting Mara Music'
-  Start-Process (Join-Path $AppDir 'تشغيل-مارا.bat')
+  # ------------------------------------------------- 4) تطبيق حقيقي لا ملف bat
+  Step 4 'Making it a proper desktop app'
+  <#
+    نسخة باسم البرنامج بجانب electron.exe: ويندوز يسمّي التطبيق في شريط
+    المهام ومدير المهام باسم الملف التنفيذي، فتظهر "Mara Music" لا
+    "electron". والاختصار يشير إليها مباشرة فلا تظهر نافذة سوداء كما
+    يحدث مع ملف bat.
+  #>
+  $distDir = Join-Path $AppDir 'node_modules\electron\dist'
+  $appExe = Join-Path $distDir 'Mara Music.exe'
+  $srcExe = Join-Path $distDir 'electron.exe'
+  if (-not (Test-Path $appExe) -or (Get-Item $srcExe).LastWriteTime -gt (Get-Item $appExe).LastWriteTime) {
+    Copy-Item $srcExe $appExe -Force
+  }
+
+  $icon = Join-Path $AppDir 'src\assets\icon.ico'
+  $shell = New-Object -ComObject WScript.Shell
+  $targets = @(
+    (Join-Path ([Environment]::GetFolderPath('Desktop')) 'Mara Music.lnk'),
+    (Join-Path ([Environment]::GetFolderPath('StartMenu')) 'Programs\Mara Music.lnk')
+  )
+  foreach ($linkPath in $targets) {
+    New-Item -ItemType Directory -Force -Path (Split-Path $linkPath -Parent) | Out-Null
+    $link = $shell.CreateShortcut($linkPath)
+    $link.TargetPath = $appExe
+    $link.Arguments = "`"$AppDir`""
+    $link.WorkingDirectory = $AppDir
+    if (Test-Path $icon) { $link.IconLocation = $icon }
+    $link.Description = 'Mara Music'
+    $link.Save()
+  }
+  Ok 'desktop and start menu shortcuts created'
+
+  # -------------------------------------------------------------- 5) التشغيل
+  Step 5 'Starting Mara Music'
+  Start-Process $appExe -ArgumentList "`"$AppDir`"" -WorkingDirectory $AppDir
   Info 'waiting for it to come up...'
   $owner = $null
   for ($i = 0; $i -lt 20; $i += 1) {
