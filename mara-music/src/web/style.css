@@ -91,6 +91,14 @@ button { cursor: pointer; }
   font-size: 18px;
 }
 .error { color: var(--danger); margin-top: 16px; min-height: 22px; font-size: 14px; }
+/* رابط صفحة الحذف: مخرج حين تعلق نسخة قديمة في ذاكرة الجوال */
+.reset-link {
+  display: block;
+  margin-top: 14px;
+  color: var(--muted);
+  font-size: 13px;
+  text-decoration: none;
+}
 
 /* ------------------------------------------------------------ الهيكل */
 

@@ -1043,6 +1043,22 @@ async function main() {
 
   check('لا خطأ غير ملتقط أثناء تشغيل الواجهة', uiErrors.length === 0, uiErrors.join(' | '));
 
+  /*
+    صفحة حذف النسخة القديمة من الجوال. شرطها أن تكون مستقلة تمامًا: لو
+    استدعت app.js أو style.css لاحتاجت الملفات التي جاءت لتحذفها.
+  */
+  const resetRes = await fetch(`${base}/reset.html`);
+  const resetPage = await resetRes.text();
+  check('صفحة حذف النسخة القديمة متاحة بلا رمز دخول', resetRes.status === 200);
+  check(
+    'صفحة الحذف لا تعتمد على ملفات الواجهة',
+    !/<script[^>]+src=/i.test(resetPage) && !/<link[^>]+stylesheet/i.test(resetPage)
+  );
+  check('صفحة الحذف توقف عامل الخدمة', /getRegistrations\(\)/.test(resetPage) && /\.unregister\(\)/.test(resetPage));
+  check('صفحة الحذف تمسح الملفات المخزّنة', /caches\.keys\(\)/.test(resetPage) && /caches\.delete\(/.test(resetPage));
+  check('صفحة الحذف تمسح الجلسة', /localStorage\.clear\(\)/.test(resetPage));
+  check('شاشة الرمز تدلّ على صفحة الحذف', indexHtml.includes('reset.html'));
+
   // عامل الخدمة: تخزين الصفحة والسكربت كان يخلط نسخة قديمة بأخرى جديدة
   const swSource = await (await fetch(`${base}/sw.js`)).text();
   check('عامل الخدمة لا يخزّن صفحة الواجهة', !/'index\.html'|"index\.html"/.test(swSource));
