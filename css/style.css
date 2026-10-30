@@ -197,6 +197,7 @@ dialog form { padding: 18px; }
 .slip-title { text-align: center; font-size: 20px; font-weight: bold; margin: 7mm 0 3mm; }
 .slip-no { text-align: left; font-size: 12px; margin-bottom: 3mm; }
 .slip-row { display: flex; align-items: baseline; gap: 6px; margin: 4.2mm 0; font-size: 15px; }
+.slip-words { font-size: 13px; }
 .slip-label { font-weight: bold; white-space: nowrap; }
 .slip-val { flex: 1; border-bottom: 2px dotted #000; min-height: 1.3em; padding: 0 6px; }
 .slip-foot { display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 6mm; margin-top: auto; padding-top: 8mm; text-align: center; }

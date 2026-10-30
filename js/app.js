@@ -255,6 +255,60 @@
     });
   }
 
+  // ---------- تفقيط المبلغ (كتابته بالحروف) ----------
+  const ONES = ['', 'واحد', 'اثنان', 'ثلاثة', 'أربعة', 'خمسة', 'ستة', 'سبعة', 'ثمانية', 'تسعة', 'عشرة',
+    'أحد عشر', 'اثنا عشر', 'ثلاثة عشر', 'أربعة عشر', 'خمسة عشر', 'ستة عشر', 'سبعة عشر', 'ثمانية عشر', 'تسعة عشر'];
+  const TENS = ['', '', 'عشرون', 'ثلاثون', 'أربعون', 'خمسون', 'ستون', 'سبعون', 'ثمانون', 'تسعون'];
+  const HUNDREDS = ['', 'مائة', 'مائتان', 'ثلاثمائة', 'أربعمائة', 'خمسمائة', 'ستمائة', 'سبعمائة', 'ثمانمائة', 'تسعمائة'];
+
+  function below1000(n) {
+    const h = Math.floor(n / 100), r = n % 100;
+    let rest = '';
+    if (r < 20) rest = ONES[r];
+    else rest = r % 10 ? `${ONES[r % 10]} و${TENS[Math.floor(r / 10)]}` : TENS[Math.floor(r / 10)];
+    return [HUNDREDS[h], rest].filter(Boolean).join(' و');
+  }
+
+  // كلمة مع العدد حسب قواعد التمييز: [مفرد, مثنى, جمع 3-10, منصوب 11-99]
+  function counted(n, forms) {
+    if (n === 1) return forms[0];
+    if (n === 2) return forms[1];
+    const words = below1000(n).replace(/مائتان$/, 'مائتا');
+    const r = n % 100;
+    if (r >= 3 && r <= 10) return `${words} ${forms[2]}`;
+    if (r >= 11) return `${words} ${forms[3]}`;
+    return `${words} ${forms[0]}`;
+  }
+
+  function numberToWords(n) {
+    if (!n) return 'صفر';
+    const parts = [];
+    const millions = Math.floor(n / 1e6), thousands = Math.floor((n % 1e6) / 1000), rest = n % 1000;
+    if (millions) parts.push(counted(millions, ['مليون', 'مليونان', 'ملايين', 'مليوناً']));
+    if (thousands) parts.push(counted(thousands, ['ألف', 'ألفان', 'آلاف', 'ألفاً']));
+    if (rest) parts.push(below1000(rest));
+    return parts.join(' و');
+  }
+
+  function amountInWords(amount) {
+    const total = Math.round(num(amount) * 100);
+    const whole = Math.floor(total / 100), frac = total % 100;
+    const cur = db.settings.currency || 'ريال';
+    const isRiyal = cur === 'ريال';
+    let text;
+    if (isRiyal && whole === 1) text = 'ريال واحد';
+    else if (isRiyal && whole === 2) text = 'ريالان';
+    else {
+      const r = whole % 100;
+      const curWord = !isRiyal ? cur : r >= 3 && r <= 10 && whole >= 3 ? 'ريالات' : r >= 11 ? 'ريالاً' : 'ريال';
+      // قبل اسم العملة: مائتان => مائتا، ألفان => ألفا، ألفاً => ألف
+      const words = numberToWords(whole).replace(/(مائتا|ألفا|مليونا)ن$/, '$1').replace(/(ألف|مليون)اً$/, '$1');
+      text = `${words} ${curWord}`;
+    }
+    if (frac) text += ` و${numberToWords(frac)} ${isRiyal ? 'هللة' : ''}`.trimEnd();
+    return `فقط ${text} لا غير`;
+  }
+
   const logoSrc = () => db.settings.logo || 'img/logo.png';
   const slipDate = (d) => { const [y, m, day] = String(d).split('-'); return `${day} / ${m} / ${y}م`; };
 
@@ -276,12 +330,12 @@
       <div class="slip-title">${esc(st.slipTitle)}</div>
       <div class="slip-no">رقم: ${sale.no}${single ? ` (${part} / ${parts})` : ''}</div>
       ${row('التاريخ', slipDate(sale.date))}
-      ${row('المبلغ', money(amount))}
+      ${row('المبلغ', `${money(amount)} <span class="slip-words">(${esc(amountInWords(amount))})</span>`)}
       ${row('عدد الردود', count)}
       ${row('نوع القلاب', truckType)}
       ${row('نوع الحمولة', esc(nameOf('materials', sale.materialId, '')))}
       ${row('الموقع', esc(sale.site))}
-      ${row('توقيع السائق', esc(sale.driver || t.driver))}
+      ${row('توقيع السائق', '')}
       ${row('توقيع المهندس المسؤول', '')}
       <div class="slip-foot">
         <div><div class="slip-label">المستلم :</div>${row('الاسم', '')}${row('التوقيع', '')}</div>
