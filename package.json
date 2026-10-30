@@ -1,0 +1,18 @@
+{
+  "name": "mara-pos",
+  "version": "2.0.0",
+  "private": true,
+  "description": "نظام تسجيل خروج القلابات ومبيعات مواد الجبل (دفان - سبيس)",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "test": "node --test test/*.test.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.4.1",
+    "express": "^5.1.0"
+  }
+}

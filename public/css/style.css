@@ -1,0 +1,283 @@
+/* ألوان مارا: أحمر - أسود - أبيض */
+:root {
+  --red: #d71920;
+  --red-dark: #a8121a;
+  --red-soft: #fdecec;
+  --black: #111111;
+  --ink: #1a1a1a;
+  --muted: #6b6b6b;
+  --line: #e4e4e4;
+  --bg: #f6f6f6;
+  --white: #ffffff;
+  --ok: #1d7a3e;
+  --ok-soft: #e7f5ec;
+  --blue: #1f4fa3;
+  --blue-soft: #e8eefa;
+  --radius: 14px;
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: "Tajawal", "Segoe UI", Tahoma, Arial, sans-serif;
+  font-size: 16px;
+}
+[hidden] { display: none !important; }
+
+/* ---------- الشريط العلوي والقائمة ---------- */
+.topbar {
+  position: sticky; top: 0; z-index: 20;
+  display: flex; align-items: center; gap: 10px;
+  background: var(--black); color: var(--white);
+  padding: 10px 14px; padding-top: max(10px, env(safe-area-inset-top));
+  border-bottom: 4px solid var(--red);
+}
+.brand { display: flex; align-items: center; gap: 8px; font-weight: 800; font-size: 19px; flex: 1; min-width: 0; }
+.brand span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.brand-mark { background: var(--red); color: #fff; width: 32px; height: 32px; border-radius: 8px; display: grid; place-items: center; font-size: 18px; flex-shrink: 0; }
+.who { font-size: 13px; opacity: .85; text-align: left; white-space: nowrap; }
+.icon-btn { background: none; border: 0; color: inherit; font-size: 24px; width: 44px; height: 44px; cursor: pointer; border-radius: 10px; }
+.icon-btn:hover { background: rgba(255,255,255,.08); }
+
+.drawer {
+  position: fixed; top: 0; bottom: 0; right: 0; z-index: 40; width: min(290px, 86vw);
+  background: var(--black); color: #fff; padding: 16px 0; overflow-y: auto;
+  box-shadow: 0 0 40px rgba(0,0,0,.4);
+}
+.drawer .drawer-head { padding: 6px 20px 16px; border-bottom: 1px solid #333; margin-bottom: 8px; }
+.drawer .drawer-head strong { display: block; font-size: 18px; }
+.drawer .drawer-head small { color: #aaa; }
+.drawer a, .drawer button.nav-link {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  padding: 14px 20px; color: #fff; text-decoration: none; font: inherit; font-size: 17px;
+  background: none; border: 0; cursor: pointer; text-align: right;
+}
+.drawer a:hover, .drawer button.nav-link:hover { background: #222; }
+.drawer a.active { background: var(--red); font-weight: 700; }
+.drawer .ico { width: 26px; text-align: center; }
+.scrim { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 30; }
+
+main { padding: 16px; max-width: 1200px; margin: 0 auto; padding-bottom: 80px; }
+
+@media (min-width: 1000px) {
+  body.has-nav .drawer { display: block !important; width: 250px; box-shadow: none; top: 60px; }
+  body.has-nav .scrim { display: none !important; }
+  body.has-nav #menuBtn { display: none; }
+  body.has-nav main { margin-right: 250px; max-width: none; padding: 22px 28px 60px; }
+}
+
+/* ---------- عناصر عامة ---------- */
+h1 { font-size: 22px; margin: 0 0 14px; }
+h2 { font-size: 19px; margin: 0; }
+h3 { font-size: 17px; margin: 20px 0 10px; }
+.page-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+.page-head h1 { margin: 0; flex: 1; }
+
+.card { background: var(--white); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; margin-bottom: 14px; }
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  min-height: 46px; padding: 10px 18px; border-radius: 12px;
+  border: 2px solid var(--black); background: var(--white); color: var(--black);
+  font: inherit; font-weight: 700; cursor: pointer; text-decoration: none; white-space: nowrap;
+}
+.btn:hover { background: #f1f1f1; }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+.btn.red { background: var(--red); border-color: var(--red); color: #fff; }
+.btn.red:hover { background: var(--red-dark); border-color: var(--red-dark); }
+.btn.black { background: var(--black); color: #fff; }
+.btn.black:hover { background: #333; }
+.btn.ghost { border-color: var(--line); }
+.btn.danger { border-color: var(--red); color: var(--red); }
+.btn.sm { min-height: 36px; padding: 6px 12px; font-size: 14px; border-width: 1.5px; border-radius: 10px; }
+.btn.block { width: 100%; }
+.btn.xl { min-height: 64px; font-size: 21px; border-radius: 16px; }
+
+label.lbl { display: block; font-weight: 700; margin-bottom: 6px; font-size: 15px; }
+.field { margin-bottom: 16px; }
+.hint { font-size: 13px; color: var(--muted); margin-top: 5px; }
+.hint.ok { color: var(--ok); font-weight: 700; }
+.hint.warn { color: var(--red); font-weight: 700; }
+
+input, select, textarea {
+  width: 100%; font: inherit; font-size: 17px; color: var(--ink);
+  min-height: 52px; padding: 10px 14px; border: 2px solid var(--line); border-radius: 12px; background: #fff;
+}
+textarea { min-height: 80px; resize: vertical; }
+input:focus, select:focus, textarea:focus { outline: none; border-color: var(--black); }
+input.big { font-size: 24px; font-weight: 800; min-height: 60px; }
+input.plate { direction: ltr; text-align: center; letter-spacing: 2px; text-transform: uppercase; }
+input.money { direction: ltr; text-align: center; }
+.row { display: flex; gap: 8px; align-items: stretch; }
+.row > .grow { flex: 1; min-width: 0; }
+.row > .btn { flex-shrink: 0; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+@media (max-width: 640px) { .grid2, .grid3 { grid-template-columns: 1fr; } }
+
+/* أزرار الاختيار الكبيرة (المادة / طريقة الدفع) */
+.choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px; }
+.choice {
+  min-height: 58px; border-radius: 14px; border: 2px solid var(--line); background: #fff;
+  font: inherit; font-size: 19px; font-weight: 800; color: var(--ink); cursor: pointer;
+}
+#x-methods { grid-template-columns: repeat(3, 1fr); }
+.choice.on { border-color: var(--red); background: var(--red); color: #fff; }
+.choice.on.credit { background: var(--black); border-color: var(--black); }
+
+.chips { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; margin-top: 8px; scrollbar-width: thin; }
+.chip {
+  flex-shrink: 0; border: 1.5px solid var(--line); background: #fff; border-radius: 999px;
+  padding: 8px 14px; font: inherit; font-size: 15px; cursor: pointer; direction: ltr; font-weight: 700;
+}
+.chip small { font-weight: 400; color: var(--muted); direction: rtl; }
+.chip:hover { border-color: var(--black); }
+
+/* شاشة تسجيل الخروج */
+.exit-wrap { max-width: 640px; margin: 0 auto; }
+.remaining-box {
+  display: flex; justify-content: space-between; align-items: center;
+  background: var(--ok-soft); color: var(--ok); border-radius: 14px; padding: 14px 18px; font-weight: 800; font-size: 18px;
+}
+.remaining-box .v { font-size: 28px; direction: ltr; }
+.remaining-box.due { background: var(--red-soft); color: var(--red); }
+.sticky-submit { position: sticky; bottom: 0; background: linear-gradient(transparent, var(--bg) 30%); padding: 18px 0 max(12px, env(safe-area-inset-bottom)); }
+
+/* الإحصائيات */
+.stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(165px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.stat { background: #fff; border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; border-top: 4px solid var(--black); }
+.stat .l { font-size: 13px; color: var(--muted); font-weight: 700; }
+.stat .v { font-size: 24px; font-weight: 800; margin-top: 6px; direction: ltr; text-align: right; }
+.stat.red { border-top-color: var(--red); }
+.stat.red .v { color: var(--red); }
+.stat.ok { border-top-color: var(--ok); }
+.stat.blue { border-top-color: var(--blue); }
+
+/* الجداول */
+.toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; margin-bottom: 12px; }
+.toolbar .f { display: flex; flex-direction: column; gap: 4px; min-width: 140px; flex: 1; }
+.toolbar .f label { font-size: 13px; font-weight: 700; color: var(--muted); }
+.toolbar input, .toolbar select { min-height: 44px; font-size: 15px; padding: 8px 10px; }
+.table-wrap { overflow-x: auto; background: #fff; border: 1px solid var(--line); border-radius: var(--radius); margin-bottom: 14px; }
+table { width: 100%; border-collapse: collapse; }
+th, td { padding: 10px 12px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; font-size: 15px; }
+th { background: var(--black); color: #fff; font-size: 13px; font-weight: 700; position: sticky; top: 0; }
+tbody tr:hover td { background: #fafafa; }
+tfoot td { font-weight: 800; background: #f1f1f1; }
+td.n, th.n { direction: ltr; text-align: left; }
+tr.cancelled td { color: #999; text-decoration: line-through; }
+tr.cancelled td.keep { text-decoration: none; }
+.empty { text-align: center; color: var(--muted); padding: 30px 10px !important; white-space: normal; }
+.due { color: var(--red); font-weight: 800; }
+.paid { color: var(--ok); font-weight: 800; }
+.badge { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 13px; font-weight: 700; }
+.badge.cash { background: var(--ok-soft); color: var(--ok); }
+.badge.transfer { background: var(--blue-soft); color: var(--blue); }
+.badge.credit { background: var(--black); color: #fff; }
+.badge.cancelled { background: var(--red-soft); color: var(--red); }
+.badge.gate { background: #eee; }
+.badge.manager { background: var(--red); color: #fff; }
+.plate-txt { direction: ltr; unicode-bidi: isolate; font-weight: 800; letter-spacing: 1px; }
+
+/* بطاقات العمليات (للجوال) */
+.trip-cards { display: grid; gap: 10px; }
+.trip-card { background: #fff; border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; display: grid; gap: 6px; border-right: 5px solid var(--red); }
+.trip-card.cancelled { opacity: .55; border-right-color: #999; }
+.trip-card .top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.trip-card .no { font-weight: 800; font-size: 18px; }
+.trip-card .meta { color: var(--muted); font-size: 14px; }
+.trip-card .actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+
+/* الدخول */
+.login { min-height: 100vh; display: grid; place-items: center; padding: 20px; background: var(--black); }
+.login .box { background: #fff; width: min(420px, 100%); border-radius: 20px; padding: 28px 22px; border-top: 8px solid var(--red); }
+.login .logo { display: flex; align-items: center; gap: 10px; justify-content: center; margin-bottom: 18px; }
+.login .logo .brand-mark { width: 48px; height: 48px; font-size: 26px; border-radius: 12px; }
+.login h1 { text-align: center; margin-bottom: 4px; }
+.login p.sub { text-align: center; color: var(--muted); margin: 0 0 20px; }
+.error-box { background: var(--red-soft); color: var(--red); padding: 10px 14px; border-radius: 10px; margin-bottom: 14px; font-weight: 700; }
+
+/* النافذة المنبثقة */
+dialog { border: 0; border-radius: 18px; padding: 0; width: min(560px, 94vw); max-height: 92vh; box-shadow: 0 20px 60px rgba(0,0,0,.35); }
+dialog::backdrop { background: rgba(0,0,0,.5); }
+dialog form { padding: 18px; }
+.modal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; padding-bottom: 10px; border-bottom: 3px solid var(--red); }
+.modal-head .icon-btn { color: var(--ink); }
+.modal-actions { display: flex; gap: 10px; margin-top: 8px; }
+.modal-actions .btn { flex: 1; }
+.success-big { text-align: center; padding: 10px 0 4px; }
+.success-big .check { width: 72px; height: 72px; border-radius: 50%; background: var(--ok); color: #fff; font-size: 40px; display: grid; place-items: center; margin: 0 auto 10px; }
+.success-big .num { font-size: 34px; font-weight: 800; color: var(--red); }
+.pick-list { display: grid; gap: 8px; max-height: 55vh; overflow-y: auto; margin-top: 10px; }
+.pick-item { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 14px; border: 2px solid var(--line); border-radius: 12px; background: #fff; font: inherit; cursor: pointer; text-align: right; }
+.pick-item:hover { border-color: var(--red); }
+.diff { font-size: 13px; background: #f7f7f7; border-radius: 8px; padding: 8px; margin-top: 6px; white-space: normal; }
+.diff div { padding: 2px 0; }
+
+#toast {
+  position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(20px); z-index: 100;
+  background: var(--black); color: #fff; padding: 12px 20px; border-radius: 12px; font-weight: 700;
+  opacity: 0; transition: .25s; pointer-events: none; border-right: 5px solid var(--red); max-width: 90vw;
+}
+#toast.show { opacity: 1; transform: translateX(-50%); }
+
+/* ---------- الطباعة ---------- */
+#printArea { display: none; }
+@media print {
+  body.printing > *:not(#printArea) { display: none !important; }
+  body.printing #printArea { display: block; }
+  body { background: #fff; }
+  th { background: #222 !important; color: #fff !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}
+.print-doc { color: #000; padding: 10mm; font-size: 13px; }
+.print-doc .doc-head { display: flex; justify-content: space-between; align-items: center; border-bottom: 3px solid #d71920; padding-bottom: 8px; margin-bottom: 12px; }
+.print-doc .doc-head h1 { font-size: 20px; margin: 0; }
+.print-doc table { border: 1px solid #999; }
+.print-doc th, .print-doc td { border: 1px solid #bbb; padding: 5px 7px; font-size: 12px; white-space: normal; }
+.print-doc .stats { grid-template-columns: repeat(4, 1fr); }
+.print-doc .stat .v { font-size: 16px; }
+.print-doc .table-wrap { overflow: visible; border: 0; }
+.print-doc h3 { margin: 14px 0 6px; }
+.print-doc .no-print { display: none !important; }
+
+/* سند الخروج — مطابق لنموذج الشركة */
+.voucher { width: 148mm; min-height: 205mm; margin: 0 auto; padding: 8mm 10mm; color: #000; background: #fff; page: voucherA5; page-break-after: always; display: flex; flex-direction: column; position: relative; }
+.voucher:last-child { page-break-after: auto; }
+.v-head { display: flex; align-items: center; justify-content: space-between; gap: 6mm; }
+.v-co { flex: 1; text-align: center; }
+.v-co-name { font-size: 28px; font-weight: 900; }
+.v-city { font-size: 15px; font-weight: 700; margin: 3px 0; }
+.v-phone { font-size: 14px; font-weight: 700; }
+.v-sep { width: 3px; align-self: stretch; background: #000; }
+.v-logo { width: 40mm; max-height: 34mm; object-fit: contain; }
+.v-title { text-align: center; margin: 5mm 0 2mm; }
+.v-title b { display: block; font-size: 22px; }
+.v-title span { font-size: 15px; font-weight: 700; }
+.v-no { display: flex; justify-content: space-between; font-size: 15px; font-weight: 800; border: 2px solid #000; border-radius: 6px; padding: 2mm 4mm; margin-bottom: 2mm; }
+.v-row { display: flex; align-items: baseline; gap: 6px; margin: 3.2mm 0; font-size: 15px; }
+.v-label { font-weight: 800; white-space: nowrap; }
+.v-val { flex: 1; border-bottom: 2px dotted #000; min-height: 1.3em; padding: 0 6px; }
+.v-words { font-size: 12px; }
+.v-foot { display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 6mm; margin-top: auto; padding-top: 6mm; text-align: center; }
+.v-foot > div:first-child { text-align: right; }
+.v-foot .v-row { margin: 2.5mm 0; }
+.v-cancel { position: absolute; top: 45%; left: 50%; transform: translate(-50%, -50%) rotate(-25deg); font-size: 70px; font-weight: 900; color: rgba(215, 25, 32, .35); border: 8px solid rgba(215, 25, 32, .35); padding: 0 20px; border-radius: 12px; }
+@page voucherA5 { size: A5 portrait; margin: 0; }
+
+/* سند بحجم طابعة الإيصالات 80 ملم */
+.voucher.r80 { width: 72mm; min-height: 0; padding: 3mm 2mm; page: voucher80; font-size: 12px; }
+.voucher.r80 .v-head { flex-direction: column; gap: 2mm; }
+.voucher.r80 .v-sep { display: none; }
+.voucher.r80 .v-logo { width: 30mm; }
+.voucher.r80 .v-co-name { font-size: 18px; }
+.voucher.r80 .v-city, .voucher.r80 .v-phone { font-size: 12px; }
+.voucher.r80 .v-title b { font-size: 16px; }
+.voucher.r80 .v-title span { font-size: 11px; }
+.voucher.r80 .v-no { font-size: 13px; }
+.voucher.r80 .v-row { font-size: 12px; margin: 2mm 0; }
+.voucher.r80 .v-foot { grid-template-columns: 1fr; text-align: right; gap: 2mm; }
+.voucher.r80 .v-cancel { font-size: 36px; border-width: 4px; }
+@page voucher80 { size: 80mm auto; margin: 2mm; }
