@@ -182,3 +182,24 @@ dialog form { padding: 18px; }
 .invoice table th, .invoice table td { border: 1px solid #999; }
 .invoice .totals { margin-top: 12px; width: 50%; margin-right: auto; }
 .invoice .sign { display: flex; justify-content: space-between; margin-top: 50px; }
+
+/* ---------- قسيمة الرد (مطابقة لنموذج الشركة) ---------- */
+.logo-preview { height: 60px; border: 1px solid var(--line); border-radius: 6px; padding: 4px; background: #fff; }
+.slip { width: 148mm; min-height: 205mm; margin: 0 auto; padding: 8mm 10mm; color: #000; background: #fff; page: slip; page-break-after: always; display: flex; flex-direction: column; }
+.slip:last-child { page-break-after: auto; }
+.slip-head { display: flex; align-items: center; justify-content: space-between; gap: 6mm; }
+.slip-co { flex: 1; text-align: center; }
+.slip-co-name { font-size: 30px; font-weight: 900; }
+.slip-city { font-size: 16px; font-weight: bold; margin: 4px 0; }
+.slip-phone { font-size: 15px; font-weight: bold; }
+.slip-sep { width: 3px; align-self: stretch; background: #000; }
+.slip-logo { width: 42mm; max-height: 36mm; object-fit: contain; }
+.slip-title { text-align: center; font-size: 20px; font-weight: bold; margin: 7mm 0 3mm; }
+.slip-no { text-align: left; font-size: 12px; margin-bottom: 3mm; }
+.slip-row { display: flex; align-items: baseline; gap: 6px; margin: 4.2mm 0; font-size: 15px; }
+.slip-label { font-weight: bold; white-space: nowrap; }
+.slip-val { flex: 1; border-bottom: 2px dotted #000; min-height: 1.3em; padding: 0 6px; }
+.slip-foot { display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 6mm; margin-top: auto; padding-top: 8mm; text-align: center; }
+.slip-foot > div:first-child { text-align: right; }
+.slip-foot .slip-row { margin: 3mm 0; }
+@page slip { size: A5 portrait; margin: 0; }

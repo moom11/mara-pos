@@ -7,10 +7,11 @@
 
   const STORAGE_KEY = 'mara-pos-db-v1';
 
-  const UNITS = { trip: 'نقلة', m3: 'متر مكعب', ton: 'طن' };
+  const UNITS = { trip: 'رد', m3: 'متر مكعب', ton: 'طن' };
   const PAY_TYPES = { cash: 'نقدي', credit: 'آجل', transfer: 'تحويل' };
   const ASSET_TYPES = ['شيول', 'حفار', 'قلاب', 'بلدوزر', 'كسارة', 'مولد كهرباء', 'سيارة', 'أرض / موقع', 'مبنى / مكتب', 'أخرى'];
   const ASSET_STATUS = { active: 'يعمل', maintenance: 'في الصيانة', idle: 'متوقف', sold: 'مباع' };
+  const TRUCK_TYPES = ['سكس', 'تريلا', 'قلاب 10 ويل', 'قلاب 12 ويل', 'دينا', 'لوري'];
   const OWNERSHIP = { own: 'ملك المؤسسة', external: 'خارجي / مستأجر' };
   const EXPENSE_CATS = ['ديزل / وقود', 'رواتب وأجور', 'صيانة وقطع غيار', 'إيجار معدات', 'رسوم وتصاريح', 'أخرى'];
 
@@ -20,7 +21,7 @@
 
   function defaultDb() {
     return {
-      settings: { name: 'مؤسسة مواد الجبل', phone: '', address: '', currency: 'ريال', vat: 0 },
+      settings: { name: 'شركة متعب', phone: '+966 54 646 1965', address: 'المدينة المنورة', currency: 'ريال', vat: 0, slipTitle: 'قسيمة ذات رد واحد فقط', logo: '' },
       seq: { sale: 0 },
       materials: [
         { id: uid(), name: 'دفان', unit: 'trip', price: 0 },
@@ -38,11 +39,17 @@
   function loadDb() {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) return Object.assign(defaultDb(), JSON.parse(raw));
+      if (raw) return mergeDb(JSON.parse(raw));
     } catch (e) {
       console.error(e);
     }
     return defaultDb();
+  }
+
+  // دمج البيانات المحفوظة مع القيم الافتراضية (لإضافة الحقول الجديدة للنسخ القديمة)
+  function mergeDb(data) {
+    const d = defaultDb();
+    return Object.assign(d, data, { settings: Object.assign(d.settings, data.settings) });
   }
 
   let db = loadDb();
@@ -71,6 +78,7 @@
   const fmt = (n) => num(n).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
   const money = (n) => fmt(n) + ' ' + esc(db.settings.currency);
   const sum = (arr, f) => arr.reduce((a, x) => a + num(f(x)), 0);
+  const tripCount = (sales) => sum(sales, (s) => (s.unit === 'trip' ? s.qty : 1));
   const inRange = (d, from, to) => (!from || d >= from) && (!to || d <= to);
   const monthStart = () => todayStr().slice(0, 8) + '01';
 
@@ -108,7 +116,7 @@
     const expensesTotal = sum(expenses, (e) => e.amount);
     return {
       sales, payments, expenses,
-      trips: sales.length,
+      trips: tripCount(sales),
       salesTotal, vatTotal, collected, expensesTotal,
       profit: salesTotal - vatTotal - expensesTotal,
       cashNet: collected - expensesTotal,
@@ -160,6 +168,8 @@
       ${field('سعر الوحدة', `<input name="price" id="f-price" inputmode="decimal" value="${esc(s.price ?? '')}" required>`)}
       ${field('القلاب', `<select name="truckId" id="f-truck">${options(db.trucks, s.truckId, '— قلاب غير مسجل —')}</select>`)}
       ${field('رقم اللوحة', plateInputHtml(s.plate, 'f-plate'))}
+      ${field('نوع القلاب', `<input name="truckType" id="f-ttype" list="truckTypes" value="${esc(s.truckType)}" placeholder="سكس، تريلا...">`)}
+      ${field('اسم السائق', `<input name="driver" id="f-driver" value="${esc(s.driver)}">`)}
       ${field('موقع التوصيل', `<input name="site" value="${esc(s.site)}">`)}
       ${field('طريقة الدفع', `<select name="payType" id="f-pay">${mapOptions(PAY_TYPES, s.payType)}</select>`)}
       ${field('المبلغ المدفوع', `<input name="paid" id="f-paid" inputmode="decimal" value="${esc(s.paid ?? '')}">`)}
@@ -167,7 +177,7 @@
       <div class="full calc-box" id="f-calc"></div>
     </div>`;
 
-    openModal(sale ? 'تعديل نقلة / فاتورة' : 'نقلة / فاتورة جديدة', body, (d) => {
+    openModal(sale ? 'تعديل رد / قسيمة' : 'رد جديد (قسيمة)', body, (d) => {
       if (!d.materialId) { alert('اختر المادة'); return false; }
       const subtotal = round2(num(d.qty) * num(d.price));
       const vat = round2(subtotal * vatRate / 100);
@@ -178,18 +188,24 @@
       const rec = {
         date: d.date, customerId: d.customerId, materialId: d.materialId, unit: d.unit,
         qty: num(d.qty), price: num(d.price), subtotal, vatRate, vat, total, paid,
-        truckId: d.truckId, plate: d.plate.trim(), site: d.site.trim(), payType: d.payType, notes: d.notes.trim(),
+        truckId: d.truckId, plate: d.plate.trim(), truckType: d.truckType.trim(), driver: d.driver.trim(), site: d.site.trim(), payType: d.payType, notes: d.notes.trim(),
       };
       // ربط اللوحة بالقلاب: إن لم يُختر قلاب نبحث عنه باللوحة أو نسجله تلقائياً
       if (rec.plate && !rec.truckId) {
         let t = findTruckByPlate(rec.plate);
         if (!t) {
-          t = { id: uid(), name: 'قلاب ' + rec.plate, plate: rec.plate, driver: '', driverPhone: '', ownership: 'external' };
+          t = { id: uid(), name: 'قلاب ' + rec.plate, plate: rec.plate, type: rec.truckType, driver: rec.driver, driverPhone: '', ownership: 'external' };
           db.trucks.push(t);
         }
         rec.truckId = t.id;
       }
-      if (rec.truckId && !rec.plate) rec.plate = (byId('trucks', rec.truckId) || {}).plate || '';
+      const tr = byId('trucks', rec.truckId);
+      if (tr) {
+        // نكمل بيانات القلاب الناقصة من القسيمة والعكس
+        rec.plate = rec.plate || tr.plate || '';
+        if (!tr.type && rec.truckType) tr.type = rec.truckType;
+        if (!tr.driver && rec.driver) tr.driver = rec.driver;
+      }
       if (sale) Object.assign(sale, rec);
       else {
         db.seq.sale = (db.seq.sale || 0) + 1;
@@ -212,9 +228,17 @@
         calc();
       });
       const truck = root.querySelector('#f-truck'), plate = root.querySelector('#f-plate');
-      truck.addEventListener('change', () => { const t = byId('trucks', truck.value); if (t) plate.value = t.plate || ''; });
-      plate.addEventListener('change', () => { const t = findTruckByPlate(plate.value); if (t) truck.value = t.id; });
-      bindPlateCamera(root, plate, root.querySelector('#f-plate-status'), (found) => { const t = findTruckByPlate(found); if (t) truck.value = t.id; });
+      const ttype = root.querySelector('#f-ttype'), driver = root.querySelector('#f-driver');
+      const fillTruck = (t) => {
+        if (!t) return;
+        truck.value = t.id;
+        plate.value = t.plate || '';
+        if (t.type) ttype.value = t.type;
+        if (t.driver) driver.value = t.driver;
+      };
+      truck.addEventListener('change', () => fillTruck(byId('trucks', truck.value)));
+      plate.addEventListener('change', () => fillTruck(findTruckByPlate(plate.value)));
+      bindPlateCamera(root, plate, root.querySelector('#f-plate-status'), (found) => fillTruck(findTruckByPlate(found)));
       pay.addEventListener('change', () => { if (pay.value === 'credit') paid.value = '0'; else paid.value = ''; calc(); });
       [qty, price, paid].forEach((el) => el.addEventListener('input', calc));
       calc();
@@ -223,33 +247,59 @@
 
   function printHtml(html) {
     $('#printArea').innerHTML = html;
-    document.body.classList.add('printing');
-    window.print();
-    document.body.classList.remove('printing');
+    const imgs = [...$('#printArea').querySelectorAll('img')].filter((i) => !i.complete);
+    Promise.all(imgs.map((i) => new Promise((r) => { i.onload = i.onerror = r; }))).then(() => {
+      document.body.classList.add('printing');
+      window.print();
+      document.body.classList.remove('printing');
+    });
   }
 
-  function printInvoice(sale) {
+  const logoSrc = () => db.settings.logo || 'img/logo.png';
+  const slipDate = (d) => { const [y, m, day] = String(d).split('-'); return `${day} / ${m} / ${y}م`; };
+
+  function slipHtml(sale, part, parts) {
     const st = db.settings;
-    const c = byId('customers', sale.customerId);
-    printHtml(`<div class="invoice">
-      <div class="head">
-        <div><h1>${esc(st.name)}</h1><div>${esc(st.address)}</div><div>${esc(st.phone)}</div></div>
-        <div><strong>فاتورة رقم: ${sale.no}</strong><div>التاريخ: ${esc(sale.date)}</div></div>
+    const t = byId('trucks', sale.truckId) || {};
+    const single = parts > 1;
+    const amount = single ? round2(sale.total / parts) : sale.total;
+    const count = single ? '1' : `${fmt(sale.qty)}${sale.unit === 'trip' ? '' : ' ' + UNITS[sale.unit]}`;
+    const truckType = [sale.truckType || t.type, sale.plate ? `<bdi dir="ltr">${esc(sale.plate)}</bdi>` : ''].filter(Boolean).join(' — لوحة: ');
+    const row = (label, value) => `<div class="slip-row"><span class="slip-label">${label} :</span><span class="slip-val">${value || ''}</span></div>`;
+    return `<div class="slip">
+      <div class="slip-head">
+        <div class="slip-co"><div class="slip-co-name">${esc(st.name)}</div><div class="slip-city">${esc(st.address)}</div>
+          <div class="slip-phone">هاتف: <bdi dir="ltr">${esc(st.phone)}</bdi></div></div>
+        <div class="slip-sep"></div>
+        <img class="slip-logo" src="${esc(logoSrc())}" alt="">
       </div>
-      <p>العميل: <strong>${esc(c ? c.name : 'عميل نقدي')}</strong> ${c && c.phone ? '— ' + esc(c.phone) : ''}</p>
-      ${sale.site ? `<p>موقع التوصيل: ${esc(sale.site)}</p>` : ''}
-      <table><thead><tr><th>المادة</th><th>الوحدة</th><th>الكمية</th><th>السعر</th><th>المبلغ</th></tr></thead>
-      <tbody><tr><td>${esc(nameOf('materials', sale.materialId))}</td><td>${UNITS[sale.unit]}</td><td>${fmt(sale.qty)}</td><td>${fmt(sale.price)}</td><td>${fmt(sale.subtotal)}</td></tr></tbody></table>
-      <table class="totals">
-        <tr><td>المجموع</td><td>${money(sale.subtotal)}</td></tr>
-        ${sale.vat ? `<tr><td>الضريبة ${sale.vatRate}%</td><td>${money(sale.vat)}</td></tr>` : ''}
-        <tr><td><strong>الإجمالي</strong></td><td><strong>${money(sale.total)}</strong></td></tr>
-        <tr><td>المدفوع</td><td>${money(sale.paid)}</td></tr>
-        <tr><td>المتبقي</td><td>${money(sale.total - sale.paid)}</td></tr>
-      </table>
-      ${sale.truckId || sale.plate ? `<p>القلاب: ${esc(nameOf('trucks', sale.truckId, ''))} ${sale.plate ? '— لوحة: <strong><bdi dir="ltr">' + esc(sale.plate) + '</bdi></strong>' : ''}</p>` : ''}
-      <div class="sign"><span>توقيع المستلم: ............</span><span>توقيع المؤسسة: ............</span></div>
-    </div>`);
+      <div class="slip-title">${esc(st.slipTitle)}</div>
+      <div class="slip-no">رقم: ${sale.no}${single ? ` (${part} / ${parts})` : ''}</div>
+      ${row('التاريخ', slipDate(sale.date))}
+      ${row('المبلغ', money(amount))}
+      ${row('عدد الردود', count)}
+      ${row('نوع القلاب', truckType)}
+      ${row('نوع الحمولة', esc(nameOf('materials', sale.materialId, '')))}
+      ${row('الموقع', esc(sale.site))}
+      ${row('توقيع السائق', esc(sale.driver || t.driver))}
+      ${row('توقيع المهندس المسؤول', '')}
+      <div class="slip-foot">
+        <div><div class="slip-label">المستلم :</div>${row('الاسم', '')}${row('التوقيع', '')}</div>
+        <div class="slip-label">الختم الرسمي</div>
+        <div class="slip-label">مدير المشروع</div>
+      </div>
+    </div>`;
+  }
+
+  function printSlip(sale) {
+    let parts = 1;
+    if (sale.unit === 'trip' && sale.qty > 1 && Number.isInteger(sale.qty) &&
+        confirm(`هذه القسيمة فيها ${sale.qty} ردود.\nموافق = طباعة قسيمة مستقلة لكل رد (${sale.qty} قسائم)\nإلغاء = قسيمة واحدة بعدد الردود`)) {
+      parts = sale.qty;
+    }
+    const pages = [];
+    for (let i = 1; i <= parts; i++) pages.push(slipHtml(sale, i, parts));
+    printHtml(pages.join(''));
   }
 
   const salesFilter = { from: monthStart(), to: todayStr(), customerId: '', materialId: '', q: '' };
@@ -264,9 +314,9 @@
       .filter((s) => !q || [s.no, s.site, s.notes, s.plate, nameOf('customers', s.customerId, ''), nameOf('trucks', s.truckId, '')].join(' ').includes(q))
       .sort((a, b) => (b.date + String(b.no).padStart(8, '0')).localeCompare(a.date + String(a.no).padStart(8, '0')));
 
-    return `<h2>المبيعات (النقلات)</h2>
+    return `<h2>المبيعات (الردود)</h2>
       <div class="toolbar">
-        <button class="btn primary" data-act="new-sale">+ نقلة جديدة</button>
+        <button class="btn primary" data-act="new-sale">+ رد جديد</button>
         <span class="spacer"></span>
         <input type="date" data-filter="from" value="${f.from}"> إلى
         <input type="date" data-filter="to" value="${f.to}">
@@ -284,11 +334,11 @@
           <td class="num ${s.total - s.paid > 0 ? 'pos' : ''}">${fmt(s.total - s.paid)}</td>
           <td><span class="badge ${s.payType}">${PAY_TYPES[s.payType]}</span></td>
           <td>${esc(nameOf('trucks', s.truckId, ''))}</td><td><bdi dir="ltr">${esc(s.plate)}</bdi></td><td>${esc(s.site)}</td>
-          <td><button class="btn sm" data-act="print-sale" data-id="${s.id}">🖨️</button>
+          <td><button class="btn sm" data-act="print-sale" data-id="${s.id}" title="طباعة القسيمة">🖨️ قسيمة</button>
               <button class="btn sm" data-act="edit-sale" data-id="${s.id}">تعديل</button>
               <button class="btn sm danger" data-act="del-sale" data-id="${s.id}">حذف</button></td>
-        </tr>`).join('') || '<tr><td colspan="14" class="empty">لا توجد نقلات في هذه الفترة</td></tr>'}</tbody>
-        ${rows.length ? `<tfoot><tr><td colspan="4">المجموع (${rows.length} نقلة)</td><td>${fmt(sum(rows, (s) => s.qty))}</td><td></td>
+        </tr>`).join('') || '<tr><td colspan="14" class="empty">لا توجد ردود في هذه الفترة</td></tr>'}</tbody>
+        ${rows.length ? `<tfoot><tr><td colspan="4">المجموع (${rows.length} رد)</td><td>${fmt(sum(rows, (s) => s.qty))}</td><td></td>
           <td class="num">${fmt(sum(rows, (s) => s.total))}</td><td class="num">${fmt(sum(rows, (s) => s.paid))}</td>
           <td class="num">${fmt(sum(rows, (s) => s.total - s.paid))}</td><td colspan="5"></td></tr></tfoot>` : ''}
       </table></div>`;
@@ -312,7 +362,7 @@
 
   function pageCustomers() {
     if (statementCustomer && byId('customers', statementCustomer)) return customerStatement(statementCustomer);
-    const rows = db.customers.map((c) => ({ c, bal: customerBalance(c.id), trips: db.sales.filter((s) => s.customerId === c.id).length }));
+    const rows = db.customers.map((c) => ({ c, bal: customerBalance(c.id), trips: tripCount(db.sales.filter((s) => s.customerId === c.id)) }));
     const totalDue = sum(rows, (r) => Math.max(0, r.bal));
     return `<h2>العملاء والحسابات</h2>
       <div class="stats">
@@ -321,7 +371,7 @@
       </div>
       <div class="toolbar"><button class="btn primary" data-act="new-customer">+ عميل جديد</button></div>
       <div class="card table-wrap"><table>
-        <thead><tr><th>العميل</th><th>الجوال</th><th>عدد النقلات</th><th class="num">الرصيد المستحق</th><th></th></tr></thead>
+        <thead><tr><th>العميل</th><th>الجوال</th><th>عدد الردود</th><th class="num">الرصيد المستحق</th><th></th></tr></thead>
         <tbody>${rows.map(({ c, bal, trips }) => `<tr>
           <td>${esc(c.name)}</td><td>${esc(c.phone)}</td><td>${trips}</td>
           <td class="num ${bal > 0 ? 'pos' : 'neg'}">${money(bal)}</td>
@@ -336,8 +386,8 @@
   function statementEntries(customerId) {
     const entries = [];
     for (const s of db.sales.filter((x) => x.customerId === customerId)) {
-      entries.push({ date: s.date, desc: `فاتورة ${s.no} — ${nameOf('materials', s.materialId)} ${fmt(s.qty)} ${UNITS[s.unit]}${s.site ? ' — ' + s.site : ''}`, debit: s.total, credit: 0 });
-      if (s.paid) entries.push({ date: s.date, desc: `دفعة مع فاتورة ${s.no}`, debit: 0, credit: s.paid });
+      entries.push({ date: s.date, desc: `قسيمة ${s.no} — ${nameOf('materials', s.materialId)} ${fmt(s.qty)} ${UNITS[s.unit]}${s.site ? ' — ' + s.site : ''}`, debit: s.total, credit: 0 });
+      if (s.paid) entries.push({ date: s.date, desc: `دفعة مع قسيمة ${s.no}`, debit: 0, credit: s.paid });
     }
     for (const p of db.payments.filter((x) => x.customerId === customerId)) {
       entries.push({ date: p.date, desc: `سند قبض${p.notes ? ' — ' + p.notes : ''}`, debit: 0, credit: p.amount });
@@ -476,11 +526,11 @@
     return `<h2>المواد والأسعار</h2>
       <div class="toolbar"><button class="btn primary" data-act="new-material">+ مادة جديدة</button></div>
       <div class="card table-wrap"><table>
-        <thead><tr><th>المادة</th><th>الوحدة</th><th class="num">السعر الافتراضي</th><th>عدد النقلات</th><th class="num">إجمالي المبيعات</th><th></th></tr></thead>
+        <thead><tr><th>المادة</th><th>الوحدة</th><th class="num">السعر الافتراضي</th><th>عدد الردود</th><th class="num">إجمالي المبيعات</th><th></th></tr></thead>
         <tbody>${db.materials.map((m) => {
           const s = db.sales.filter((x) => x.materialId === m.id);
           return `<tr><td>${esc(m.name)}</td><td>${UNITS[m.unit]}</td><td class="num">${money(m.price)}</td>
-            <td>${s.length}</td><td class="num">${money(sum(s, (x) => x.total))}</td>
+            <td>${fmt(tripCount(s))}</td><td class="num">${money(sum(s, (x) => x.total))}</td>
             <td><button class="btn sm" data-act="edit-material" data-id="${m.id}">تعديل</button>
                 <button class="btn sm danger" data-act="del-material" data-id="${m.id}">حذف</button></td></tr>`;
         }).join('') || '<tr><td colspan="6" class="empty">لا توجد مواد</td></tr>'}</tbody>
@@ -585,7 +635,8 @@
     const x = t || { ownership: 'external' };
     openModal(t ? 'تعديل قلاب' : 'قلاب جديد', `<div class="form-grid">
       ${field('رقم اللوحة', plateInputHtml(x.plate, 't-plate'))}
-      ${field('اسم / وصف القلاب', `<input name="name" value="${esc(x.name)}" placeholder="مثال: قلاب مرسيدس أبيض">`)}
+      ${field('نوع القلاب', `<input name="type" list="truckTypes" value="${esc(x.type)}" placeholder="سكس، تريلا...">`)}
+      ${field('اسم / وصف القلاب', `<input name="name" value="${esc(x.name)}" placeholder="مثال: مرسيدس أبيض">`)}
       ${field('اسم السائق', `<input name="driver" value="${esc(x.driver)}">`)}
       ${field('جوال السائق', `<input name="driverPhone" value="${esc(x.driverPhone)}" inputmode="tel">`)}
       ${field('الملكية', `<select name="ownership">${mapOptions(OWNERSHIP, x.ownership)}</select>`)}
@@ -596,7 +647,7 @@
       if (dup && dup !== t) { alert('هذه اللوحة مسجلة مسبقاً باسم: ' + dup.name); return false; }
       const rec = {
         name: d.name.trim() || 'قلاب ' + d.plate.trim(), plate: d.plate.trim(), driver: d.driver.trim(),
-        driverPhone: d.driverPhone.trim(), ownership: d.ownership, capacity: num(d.capacity),
+        driverPhone: d.driverPhone.trim(), ownership: d.ownership, capacity: num(d.capacity), type: d.type.trim(),
       };
       if (t) Object.assign(t, rec); else db.trucks.push(Object.assign({ id: uid() }, rec));
       toast('تم الحفظ');
@@ -622,15 +673,15 @@
         <span class="spacer"></span>${rangeInputs('data-tfilter', truckFilter)}
       </div>
       <div class="card table-wrap"><table>
-        <thead><tr><th>اللوحة</th><th>القلاب</th><th>السائق</th><th>الجوال</th><th>الملكية</th><th>عدد النقلات</th><th>الكمية</th><th class="num">قيمة النقلات</th><th></th></tr></thead>
+        <thead><tr><th>اللوحة</th><th>النوع</th><th>القلاب</th><th>السائق</th><th>الجوال</th><th>الملكية</th><th>عدد الردود</th><th>الكمية</th><th class="num">قيمة الردود</th><th></th></tr></thead>
         <tbody>${db.trucks.map((t) => {
           const s = truckTrips(t.id);
-          return `<tr><td><strong><bdi dir="ltr">${esc(t.plate)}</bdi></strong></td><td>${esc(t.name)}</td><td>${esc(t.driver)}</td><td>${esc(t.driverPhone)}</td>
-            <td>${OWNERSHIP[t.ownership] || ''}</td><td>${s.length}</td><td>${fmt(sum(s, (x) => x.qty))}</td><td class="num">${money(sum(s, (x) => x.total))}</td>
+          return `<tr><td><strong><bdi dir="ltr">${esc(t.plate)}</bdi></strong></td><td>${esc(t.type)}</td><td>${esc(t.name)}</td><td>${esc(t.driver)}</td><td>${esc(t.driverPhone)}</td>
+            <td>${OWNERSHIP[t.ownership] || ''}</td><td>${fmt(tripCount(s))}</td><td>${fmt(sum(s, (x) => x.qty))}</td><td class="num">${money(sum(s, (x) => x.total))}</td>
             <td><button class="btn sm" data-act="truck-statement" data-id="${t.id}">كشف</button>
                 <button class="btn sm" data-act="edit-truck" data-id="${t.id}">تعديل</button>
                 <button class="btn sm danger" data-act="del-truck" data-id="${t.id}">حذف</button></td></tr>`;
-        }).join('') || '<tr><td colspan="9" class="empty">لا توجد قلابات. تُسجَّل تلقائياً عند كتابة اللوحة في النقلة</td></tr>'}</tbody>
+        }).join('') || '<tr><td colspan="10" class="empty">لا توجد قلابات. تُسجَّل تلقائياً عند كتابة اللوحة في الرد</td></tr>'}</tbody>
       </table></div>`;
   }
 
@@ -639,8 +690,8 @@
       <thead><tr><th>#</th><th>التاريخ</th><th>العميل</th><th>المادة</th><th>الكمية</th><th>الموقع</th><th class="num">القيمة</th></tr></thead>
       <tbody>${trips.map((s) => `<tr><td>${s.no}</td><td>${esc(s.date)}</td><td>${esc(nameOf('customers', s.customerId, 'نقدي'))}</td>
         <td>${esc(nameOf('materials', s.materialId))}</td><td>${fmt(s.qty)} ${UNITS[s.unit]}</td><td>${esc(s.site)}</td>
-        <td class="num">${fmt(s.total)}</td></tr>`).join('') || '<tr><td colspan="7" class="empty">لا توجد نقلات في هذه الفترة</td></tr>'}</tbody>
-      ${trips.length ? `<tfoot><tr><td colspan="4">المجموع: ${trips.length} نقلة</td><td>${fmt(sum(trips, (s) => s.qty))}</td><td></td>
+        <td class="num">${fmt(s.total)}</td></tr>`).join('') || '<tr><td colspan="7" class="empty">لا توجد ردود في هذه الفترة</td></tr>'}</tbody>
+      ${trips.length ? `<tfoot><tr><td colspan="4">المجموع: ${fmt(tripCount(trips))} رد</td><td>${fmt(sum(trips, (s) => s.qty))}</td><td></td>
         <td class="num">${fmt(sum(trips, (s) => s.total))}</td></tr></tfoot>` : ''}
     </table>`;
   }
@@ -656,8 +707,8 @@
       </div>
       <div class="stats">
         <div class="stat"><div class="label">السائق</div><div class="value">${esc(t.driver || '-')}</div></div>
-        <div class="stat"><div class="label">عدد النقلات</div><div class="value">${trips.length}</div></div>
-        <div class="stat"><div class="label">قيمة النقلات</div><div class="value">${money(sum(trips, (s) => s.total))}</div></div>
+        <div class="stat"><div class="label">عدد الردود</div><div class="value">${fmt(tripCount(trips))}</div></div>
+        <div class="stat"><div class="label">قيمة الردود</div><div class="value">${money(sum(trips, (s) => s.total))}</div></div>
       </div>
       <div class="card table-wrap">${truckTripsTable(trips)}</div>`;
   }
@@ -667,7 +718,7 @@
       const t = byId('trucks', id);
       return `<div class="invoice page-break">
         <div class="head"><div><h1>${esc(db.settings.name)}</h1><div>${esc(db.settings.phone)}</div></div>
-        <div><strong>كشف نقلات قلاب</strong><div>من ${truckFilter.from} إلى ${truckFilter.to}</div></div></div>
+        <div><strong>كشف ردود قلاب</strong><div>من ${truckFilter.from} إلى ${truckFilter.to}</div></div></div>
         <p>رقم اللوحة: <strong class="plate-box"><bdi dir="ltr">${esc(t.plate)}</bdi></strong> &nbsp; القلاب: ${esc(t.name)} &nbsp; السائق: ${esc(t.driver || '-')} ${esc(t.driverPhone)}</p>
         ${truckTripsTable(truckTrips(id))}
         <div class="sign"><span>توقيع السائق: ............</span><span>توقيع المؤسسة: ............</span></div></div>`;
@@ -751,7 +802,7 @@
     const debts = sum(db.customers, (c) => Math.max(0, customerBalance(c.id)));
     const recent = [...db.sales].sort((a, b) => b.no - a.no).slice(0, 8);
     const statBlock = (s) => `<div class="stats">
-      <div class="stat"><div class="label">عدد النقلات</div><div class="value">${s.trips}</div></div>
+      <div class="stat"><div class="label">عدد الردود</div><div class="value">${s.trips}</div></div>
       <div class="stat"><div class="label">المبيعات</div><div class="value">${money(s.salesTotal)}</div></div>
       <div class="stat ok"><div class="label">المحصّل (نقدي + سندات)</div><div class="value">${money(s.collected)}</div></div>
       <div class="stat warn"><div class="label">المصروفات</div><div class="value">${money(s.expensesTotal)}</div></div>
@@ -759,20 +810,20 @@
     </div>`;
     return `<h2>الرئيسية</h2>
       <div class="toolbar">
-        <button class="btn primary" data-act="new-sale">+ نقلة جديدة</button>
+        <button class="btn primary" data-act="new-sale">+ رد جديد</button>
         <button class="btn" data-act="new-payment">+ سند قبض</button>
         <button class="btn" data-act="new-expense">+ مصروف</button>
       </div>
       <h3>اليوم</h3>${statBlock(t)}
       <h3>هذا الشهر</h3>${statBlock(m)}
       <div class="stats"><div class="stat bad"><div class="label">إجمالي الديون المستحقة على العملاء</div><div class="value">${money(debts)}</div></div></div>
-      <h3>آخر النقلات</h3>
+      <h3>آخر الردود</h3>
       <div class="card table-wrap"><table>
         <thead><tr><th>#</th><th>التاريخ</th><th>العميل</th><th>المادة</th><th>الكمية</th><th class="num">الإجمالي</th><th>الدفع</th></tr></thead>
         <tbody>${recent.map((s) => `<tr><td>${s.no}</td><td>${esc(s.date)}</td><td>${esc(nameOf('customers', s.customerId, 'نقدي'))}</td>
           <td>${esc(nameOf('materials', s.materialId))}</td><td>${fmt(s.qty)} ${UNITS[s.unit]}</td><td class="num">${money(s.total)}</td>
           <td><span class="badge ${s.payType}">${PAY_TYPES[s.payType]}</span></td></tr>`).join('')
-          || '<tr><td colspan="7" class="empty">ابدأ بإضافة المواد والعملاء ثم سجّل أول نقلة</td></tr>'}</tbody>
+          || '<tr><td colspan="7" class="empty">ابدأ بإضافة المواد والعملاء ثم سجّل أول رد</td></tr>'}</tbody>
       </table></div>`;
   }
 
@@ -795,7 +846,7 @@
 
   function pageReports() {
     const s = summary(repFilter.from, repFilter.to);
-    const salesCols = [['النقلات', (l) => l.length], ['الكمية', (l) => sum(l, (x) => x.qty)], ['المبيعات', (l) => sum(l, (x) => x.total)], ['المتبقي', (l) => sum(l, (x) => x.total - x.paid)]];
+    const salesCols = [['الردود', tripCount], ['الكمية', (l) => sum(l, (x) => x.qty)], ['المبيعات', (l) => sum(l, (x) => x.total)], ['المتبقي', (l) => sum(l, (x) => x.total - x.paid)]];
     return `<h2>التقارير</h2>
       <div class="toolbar">
         من <input type="date" data-rfilter="from" value="${repFilter.from}">
@@ -808,7 +859,7 @@
       </div>
       <div id="reportBody">
       <div class="stats">
-        <div class="stat"><div class="label">عدد النقلات</div><div class="value">${s.trips}</div></div>
+        <div class="stat"><div class="label">عدد الردود</div><div class="value">${s.trips}</div></div>
         <div class="stat"><div class="label">إجمالي المبيعات</div><div class="value">${money(s.salesTotal)}</div></div>
         ${s.vatTotal ? `<div class="stat"><div class="label">منها ضريبة</div><div class="value">${money(s.vatTotal)}</div></div>` : ''}
         <div class="stat ok"><div class="label">المحصّل</div><div class="value">${money(s.collected)}</div></div>
@@ -818,7 +869,7 @@
       </div>
       <div class="two-col">
         ${groupTable('المبيعات حسب المادة', s.sales, (x) => x.materialId, (k) => nameOf('materials', k), salesCols)}
-        ${groupTable('النقلات حسب القلاب', s.sales, (x) => x.truckId, (k) => { const t = byId('trucks', k); return t ? `${t.plate} — ${t.name}` : 'بدون قلاب'; }, salesCols)}
+        ${groupTable('الردود حسب القلاب', s.sales, (x) => x.truckId, (k) => { const t = byId('trucks', k); return t ? `${t.plate} — ${t.name}` : 'بدون قلاب'; }, salesCols)}
         ${groupTable('المبيعات حسب العميل', s.sales, (x) => x.customerId, (k) => nameOf('customers', k, 'عملاء نقديون'), salesCols)}
         ${groupTable('المصروفات حسب البند', s.expenses, (x) => x.category, (k) => k, [['العدد', (l) => l.length], ['المبلغ', (l) => sum(l, (x) => x.amount)]])}
         ${groupTable('المبيعات اليومية', s.sales, (x) => x.date, (k) => k, salesCols)}
@@ -830,12 +881,19 @@
     const st = db.settings;
     return `<h2>الإعدادات والنسخ الاحتياطي</h2>
       <div class="card"><form id="settingsForm" class="form-grid">
-        ${field('اسم المؤسسة', `<input name="name" value="${esc(st.name)}">`)}
-        ${field('الجوال', `<input name="phone" value="${esc(st.phone)}">`)}
-        ${field('العنوان', `<input name="address" value="${esc(st.address)}">`)}
+        ${field('اسم الشركة', `<input name="name" value="${esc(st.name)}">`)}
+        ${field('الهاتف', `<input name="phone" value="${esc(st.phone)}" dir="ltr">`)}
+        ${field('المدينة / العنوان', `<input name="address" value="${esc(st.address)}">`)}
+        ${field('عنوان القسيمة', `<input name="slipTitle" value="${esc(st.slipTitle)}">`)}
         ${field('العملة', `<input name="currency" value="${esc(st.currency)}">`)}
         ${field('نسبة الضريبة % (0 = بدون ضريبة)', `<input name="vat" inputmode="decimal" value="${esc(st.vat)}">`)}
-        <div class="full"><button class="btn primary" type="submit">حفظ الإعدادات</button></div>
+        <div class="full"><label>الشعار</label><div class="toolbar">
+          <img src="${esc(logoSrc())}" alt="" class="logo-preview">
+          <label class="btn" style="margin:0;color:inherit">تغيير الشعار<input type="file" id="logoFile" accept="image/*" hidden></label>
+          ${st.logo ? '<button type="button" class="btn danger" data-act="reset-logo">الشعار الافتراضي</button>' : ''}
+        </div></div>
+        <div class="full"><button class="btn primary" type="submit">حفظ الإعدادات</button>
+          <button type="button" class="btn" data-act="sample-slip">🖨️ معاينة قسيمة فارغة</button></div>
       </form></div>
       <div class="card">
         <h3>النسخ الاحتياطي</h3>
@@ -887,6 +945,8 @@
     $('#app').innerHTML = PAGES[page]();
     document.querySelectorAll('.sidebar a').forEach((a) => a.classList.toggle('active', a.dataset.page === page));
     $('#bizName').textContent = db.settings.name || 'نظام مبيعات مواد الجبل';
+    const types = new Set([...TRUCK_TYPES, ...db.trucks.map((t) => t.type).filter(Boolean)]);
+    $('#truckTypes').innerHTML = [...types].map((t) => `<option value="${esc(t)}">`).join('');
     $('#today').textContent = new Date().toLocaleDateString('ar-SA-u-ca-gregory', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
   }
 
@@ -905,8 +965,8 @@
       saleForm();
     },
     'edit-sale': (id) => saleForm(byId('sales', id)),
-    'del-sale': (id) => confirmDelete('sales', id, 'حذف هذه النقلة/الفاتورة؟'),
-    'print-sale': (id) => printInvoice(byId('sales', id)),
+    'del-sale': (id) => confirmDelete('sales', id, 'حذف هذا الرد / القسيمة؟'),
+    'print-sale': (id) => printSlip(byId('sales', id)),
     'export-sales': exportSalesCsv,
     'new-customer': () => customerForm(),
     'edit-customer': (id) => customerForm(byId('customers', id)),
@@ -932,7 +992,7 @@
     'new-material': () => materialForm(),
     'edit-material': (id) => materialForm(byId('materials', id)),
     'del-material': (id) => {
-      if (db.sales.some((s) => s.materialId === id)) { alert('لا يمكن حذف مادة مستخدمة في فواتير.'); return; }
+      if (db.sales.some((s) => s.materialId === id)) { alert('لا يمكن حذف مادة مستخدمة في قسائم.'); return; }
       confirmDelete('materials', id);
     },
     'new-truck': () => truckForm(),
@@ -941,7 +1001,7 @@
     'print-truck': (id) => printTrucks([id]),
     'print-trucks': () => {
       const ids = db.trucks.filter((t) => truckTrips(t.id).length).map((t) => t.id);
-      if (!ids.length) { alert('لا توجد نقلات للقلابات في هذه الفترة'); return; }
+      if (!ids.length) { alert('لا توجد ردود للقلابات في هذه الفترة'); return; }
       printTrucks(ids);
     },
     'new-asset': () => assetForm(),
@@ -955,7 +1015,7 @@
     'edit-truck': (id) => truckForm(byId('trucks', id)),
     'del-truck': (id) => {
       if (db.sales.some((s) => s.truckId === id)) {
-        alert('لا يمكن حذف قلاب مرتبط بنقلات.');
+        alert('لا يمكن حذف قلاب مرتبط بردود.');
         return;
       }
       confirmDelete('trucks', id);
@@ -970,6 +1030,9 @@
       printHtml(`<div class="invoice"><h1>${esc(db.settings.name)}</h1>
         <p>تقرير الفترة من ${repFilter.from} إلى ${repFilter.to}</p>${$('#reportBody').innerHTML}</div>`);
     },
+    'reset-logo': () => { db.settings.logo = ''; save(); render(); },
+    'sample-slip': () => printHtml(slipHtml({ no: '', date: '    -    -    ', total: 0, qty: '', unit: 'trip' }, 1, 1)
+      .replace(/<span class="slip-val">[^<]*(<bdi[^>]*>[^<]*<\/bdi>)?[^<]*<\/span>/g, '<span class="slip-val"></span>')),
     backup: () => download(`نسخة_احتياطية_${todayStr()}.json`, JSON.stringify(db, null, 2), 'application/json'),
     reset: () => {
       if (!confirm('سيتم مسح جميع البيانات نهائياً. هل أخذت نسخة احتياطية؟')) return;
@@ -993,6 +1056,11 @@
     else if (el.dataset.efilter) { expFilter[el.dataset.efilter] = el.value; render(); }
     else if (el.dataset.tfilter) { truckFilter[el.dataset.tfilter] = el.value; render(); }
     else if (el.dataset.rfilter) { repFilter[el.dataset.rfilter] = el.value; render(); }
+    else if (el.id === 'logoFile' && el.files[0]) {
+      const reader = new FileReader();
+      reader.onload = () => { db.settings.logo = reader.result; save(); render(); toast('تم تغيير الشعار'); };
+      reader.readAsDataURL(el.files[0]);
+    }
     else if (el.id === 'restoreFile' && el.files[0]) {
       const reader = new FileReader();
       reader.onload = () => {
@@ -1000,7 +1068,7 @@
           const data = JSON.parse(reader.result);
           if (!data || !Array.isArray(data.sales) || !data.settings) throw new Error('bad file');
           if (!confirm('سيتم استبدال البيانات الحالية بالنسخة الاحتياطية. متابعة؟')) return;
-          db = Object.assign(defaultDb(), data);
+          db = mergeDb(data);
           save();
           render();
           toast('تمت الاستعادة بنجاح');
@@ -1016,7 +1084,10 @@
     if (e.target.id !== 'settingsForm') return;
     e.preventDefault();
     const d = Object.fromEntries(new FormData(e.target).entries());
-    db.settings = { name: d.name.trim(), phone: d.phone.trim(), address: d.address.trim(), currency: d.currency.trim() || 'ريال', vat: num(d.vat) };
+    Object.assign(db.settings, {
+      name: d.name.trim(), phone: d.phone.trim(), address: d.address.trim(), slipTitle: d.slipTitle.trim(),
+      currency: d.currency.trim() || 'ريال', vat: num(d.vat),
+    });
     save();
     render();
     toast('تم حفظ الإعدادات');
