@@ -312,13 +312,14 @@
   }
 
   // ---------- الدخول ----------
-  function renderLogin(needsSetup, error) {
+  function renderLogin(needsSetup, error, ephemeral) {
     document.body.classList.remove('has-nav');
     $('#topbar').hidden = true;
     $('#drawer').hidden = true;
     $('#app').innerHTML = `<div class="login"><form class="box" id="loginForm">
       <div class="logo"><span class="brand-mark">M</span><h1 style="margin:0">مارا</h1></div>
       <p class="sub">${needsSetup ? 'أول تشغيل: أنشئ حساب المدير' : 'تسجيل خروج القلابات'}</p>
+      ${ephemeral ? '<div class="error-box">⚠️ تحذير للمسؤول: لم يُربط قرص التخزين الدائم (Volume) بالخادم، وستضيع البيانات عند إعادة التشغيل. أضف Volume على المسار /data قبل الاستخدام.</div>' : ''}
       ${error ? `<div class="error-box">${esc(error)}</div>` : ''}
       ${needsSetup ? field('الاسم', '<input name="name" required autocomplete="name">') : ''}
       ${field('اسم المستخدم', '<input name="username" required autocomplete="username" autocapitalize="off">')}
@@ -336,7 +337,7 @@
         try { localStorage.setItem(TOKEN_KEY, r.token); } catch (_) { /* ignore */ }
         await start();
       } catch (err) {
-        renderLogin(needsSetup, err.message);
+        renderLogin(needsSetup, err.message, ephemeral);
       }
     });
   }
@@ -1312,12 +1313,12 @@
         return;
       }
       const st = await api('GET', '/api/status');
-      renderLogin(st.needsSetup);
+      renderLogin(st.needsSetup, '', st.ephemeral);
     } catch (err) {
       if (!S.user) {
         try {
           const st = await api('GET', '/api/status');
-          renderLogin(st.needsSetup);
+          renderLogin(st.needsSetup, '', st.ephemeral);
         } catch (e2) {
           $('#app').innerHTML = `<div class="login"><div class="box"><div class="error-box">${esc(e2.message)}</div></div></div>`;
         }

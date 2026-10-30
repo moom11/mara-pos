@@ -27,9 +27,11 @@ function amount(v) {
 }
 const isDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(String(s || ''));
 
-function createApp(db) {
+function createApp(db, opts = {}) {
   const app = express();
   app.disable('x-powered-by');
+  // خلف خادم وسيط (Railway وغيره) لمعرفة عنوان المستخدم الحقيقي
+  app.set('trust proxy', 1);
   app.use(express.json({ limit: '3mb' }));
   app.use(express.static(path.join(__dirname, '..', 'public')));
 
@@ -74,7 +76,8 @@ function createApp(db) {
 
   const needsSetup = () => !db.prepare('SELECT COUNT(*) c FROM users').get().c;
 
-  app.get('/api/status', route(() => ({ needsSetup: needsSetup() })));
+  // ephemeral = لا يوجد قرص تخزين دائم على الخادم السحابي، فالبيانات ستضيع عند إعادة النشر
+  app.get('/api/status', route(() => ({ needsSetup: needsSetup(), ephemeral: !!opts.ephemeral })));
 
   // إنشاء حساب المدير الأول عند أول تشغيل
   app.post('/api/setup', route((req) => {
@@ -731,11 +734,38 @@ function createApp(db) {
   return app;
 }
 
+// نسخ احتياطي تلقائي يومي داخل مجلد backups بجانب قاعدة البيانات (يُحتفظ بآخر 30 نسخة)
+function scheduleBackups(db, file) {
+  const fs = require('fs');
+  const dir = path.join(path.dirname(file), 'backups');
+  const KEEP = 30;
+  const run = async () => {
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+      const target = path.join(dir, `mara-${D.localDate()}.db`);
+      if (fs.existsSync(target)) return;
+      await db.backup(target);
+      const old = fs.readdirSync(dir).filter((f) => /^mara-\d{4}-\d{2}-\d{2}\.db$/.test(f)).sort().slice(0, -KEEP);
+      for (const f of old) fs.unlinkSync(path.join(dir, f));
+      console.log(`نسخة احتياطية تلقائية: ${target}`);
+    } catch (e) {
+      console.error('فشل النسخ الاحتياطي التلقائي:', e.message);
+    }
+  };
+  run();
+  setInterval(run, 60 * 60e3).unref();
+}
+
 if (require.main === module) {
-  const file = process.env.DB_FILE || path.join(__dirname, '..', 'data', 'mara.db');
+  // على Railway يُستخدم قرص التخزين الدائم (Volume) تلقائياً إن وُجد
+  const volume = process.env.RAILWAY_VOLUME_MOUNT_PATH;
+  const file = process.env.DB_FILE || (volume ? path.join(volume, 'mara.db') : path.join(__dirname, '..', 'data', 'mara.db'));
+  const ephemeral = !!process.env.RAILWAY_ENVIRONMENT && !volume && !process.env.DB_FILE;
+  if (ephemeral) console.warn('تحذير: لا يوجد قرص تخزين دائم (Volume). البيانات ستضيع عند إعادة النشر. أضف Volume على المسار /data');
   const db = D.open(file);
+  scheduleBackups(db, file);
   const port = Number(process.env.PORT) || 3000;
-  createApp(db).listen(port, '0.0.0.0', () => {
+  const server = createApp(db, { ephemeral }).listen(port, '0.0.0.0', () => {
     console.log(`النظام يعمل على: http://localhost:${port}`);
     const nets = require('os').networkInterfaces();
     for (const list of Object.values(nets)) {
@@ -743,6 +773,16 @@ if (require.main === module) {
     }
     console.log(`قاعدة البيانات: ${file}`);
   });
+  // إغلاق آمن لقاعدة البيانات عند إيقاف الخادم أو إعادة النشر
+  const shutdown = () => {
+    server.close(() => {
+      db.close();
+      process.exit(0);
+    });
+    setTimeout(() => process.exit(0), 8000).unref();
+  };
+  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', shutdown);
 }
 
 module.exports = { createApp };
