@@ -3,17 +3,17 @@
 # يعمل على Ubuntu 22.04/24.04 و Oracle Linux 8/9 (معالج Intel/AMD أو Ampere ARM)
 #
 # الاستخدام (على الخادم):
-#   curl -fsSL https://raw.githubusercontent.com/moom11/mara-pos/refs/heads/<الفرع>/deploy/oracle/install.sh | sudo bash
+#   curl -fsSL https://raw.githubusercontent.com/moom11/jabal/main/deploy/oracle/install.sh | sudo bash
 # خيارات:
 #   --domain example.com   اسم نطاق خاص (اختياري). بدونه يُستخدم <IP>.sslip.io
 #   --branch main          الفرع الذي يُثبَّت منه البرنامج
 # إعادة تشغيل السكربت آمنة: يحدّث البرنامج ولا يمس البيانات.
 set -euo pipefail
 
-REPO_URL="${MARA_REPO:-https://github.com/moom11/mara-pos.git}"
-BRANCH="claude/nice-mccarthy-vv8okk"
+REPO_URL="${MARA_REPO:-https://github.com/moom11/jabal.git}"
+BRANCH="main"
 DOMAIN=""
-APP_DIR="/opt/mara-pos"
+APP_DIR="/opt/jabal"
 DATA_DIR="/var/lib/mara"
 APP_PORT=3000
 
