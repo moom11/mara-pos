@@ -765,7 +765,7 @@ if (require.main === module) {
   const db = D.open(file);
   scheduleBackups(db, file);
   const port = Number(process.env.PORT) || 3000;
-  const server = createApp(db, { ephemeral }).listen(port, '0.0.0.0', () => {
+  const server = createApp(db, { ephemeral }).listen(port, process.env.HOST || '0.0.0.0', () => {
     console.log(`النظام يعمل على: http://localhost:${port}`);
     const nets = require('os').networkInterfaces();
     for (const list of Object.values(nets)) {

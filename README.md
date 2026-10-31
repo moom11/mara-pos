@@ -60,6 +60,47 @@
 - الإعدادات الجاهزة موجودة في `Dockerfile` و`railway.json`، ولا حاجة لإضافة متغيرات. المتغيرات الاختيارية: `TZ` (الافتراضي `Asia/Riyadh`) و`DB_FILE` (مسار قاعدة البيانات).
 - يمكن تشغيله على أي خادم آخر يدعم Docker بنفس الطريقة، مع ربط قرص دائم وضبط `DB_FILE`.
 
+### 3) على خادم Oracle Cloud في جدة (البيانات داخل السعودية) — خطوة بخطوة
+خادم مستقل للبرنامج بشبكة منفصلة، فلا يتأثر به أي خادم آخر في الحساب (مثل خادم الموارد البشرية).
+
+**أ) إنشاء الخادم**
+1. من لوحة Oracle Cloud: **☰ ← Compute ← Instances ← Create instance**.
+2. **Name:** `mara-pos-server`.
+3. **Image:** اضغط **Change image** واختر **Ubuntu** ثم **Canonical Ubuntu 24.04**.
+4. **Shape:** اضغط **Change shape** واختر **Ampere ← VM.Standard.A1.Flex** بـ 1 OCPU و 6GB ذاكرة (عليها علامة Always Free).
+   إذا ظهرت رسالة نفاد السعة (Out of capacity) جرّب **VM.Standard.E2.1.Micro** (مجاني أيضاً)، أو أي حجم صغير مدفوع.
+5. **Networking:** اختر **Create new virtual cloud network** و **Create new public subnet**، وتأكد أن **Automatically assign public IPv4 address** مفعّل.
+6. **Add SSH keys:** اختر **Generate a key pair for me** واضغط **Download private key**. احفظ الملف في مكان آمن ولا ترسله لأحد.
+7. اضغط **Create** وانتظر حتى تصبح الحالة **Running**، وانسخ **Public IP address**.
+
+**ب) فتح منفذي الويب 80 و 443**
+1. في صفحة الخادم، اضغط رابط **Subnet** ثم تبويب **Security** ثم **Default Security List**.
+2. **Add Ingress Rules:** Source CIDR = `0.0.0.0/0`، IP Protocol = TCP، Destination Port Range = `80,443` ثم **Add Ingress Rules**.
+
+**ج) تشغيل سكربت التثبيت**
+1. افتح **Cloud Shell** من أعلى لوحة Oracle (أيقونة `>_`).
+2. من قائمة Cloud Shell (⚙️ أو ☰) اختر **Upload** وارفع ملف المفتاح الذي نزّلته.
+3. اكتب (مع تغيير اسم الملف والعنوان):
+   ```bash
+   chmod 600 ssh-key-*.key
+   ```
+   ```bash
+   ssh -i ssh-key-*.key ubuntu@<Public IP>
+   ```
+   أجب بـ `yes` عند السؤال.
+4. على الخادم، انسخ هذا الأمر كما هو:
+   ```bash
+   curl -fsSL https://raw.githubusercontent.com/moom11/mara-pos/refs/heads/claude/nice-mccarthy-vv8okk/deploy/oracle/install.sh | sudo bash
+   ```
+   يستغرق 5 إلى 10 دقائق، وفي النهاية يظهر **رابط البرنامج** مثل `https://152-70-1-2.sslip.io`.
+5. افتح الرابط، وأنشئ **حساب المدير**، ثم أضف موظفي البوابة من الإعدادات.
+
+**بعد التثبيت**
+- **نطاق خاص (اختياري):** وجّه سجل `A` لنطاق مثل `trucks.example.com` إلى عنوان الخادم، ثم أعد تشغيل أمر التثبيت مع إضافة `-s -- --domain trucks.example.com` بعد `sudo bash`.
+- **التحديث:** على الخادم `sudo mara-update`.
+- **النسخ الاحتياطي:** يومياً تلقائياً في `/var/lib/mara/backups` (آخر 30 يوماً)، وأيضاً من **الإعدادات ← تنزيل نسخة احتياطية**. ويُنصح بتفعيل **Backup Policy** لقرص الخادم من صفحته في Oracle.
+- **سجل البرنامج عند أي مشكلة:** `journalctl -u mara -n 100`.
+
 ## النسخ الاحتياطي
 من **الإعدادات ← تنزيل نسخة احتياطية** يُنزَّل ملف قاعدة البيانات كاملاً. للاستعادة: أوقف البرنامج وضع الملف مكان `data/mara.db` ثم شغّله.
 
