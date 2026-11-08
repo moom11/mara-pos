@@ -72,6 +72,42 @@
   let nodes = null;
   let graphFailed = false;
 
+  // ======================================================= توازن الجانبين
+
+  /*
+    سماعات المطعم موزّعة على جانبي الصالة، فجانب قد يحتاج صوتًا أقل من
+    الآخر. القيم نسبة لكل جانب، و mono يرسل المزيج كاملًا للجانبين.
+
+    mono ليس ترفًا: مع سماعتين متباعدتين يسمع من يجلس قرب إحداهما نصف
+    المزيج فقط — آلة هنا وصوت هناك. جمع القناتين يعطي كل طاولة المزيج
+    كاملًا، وهذا ما تفعله أنظمة الصوت في المحال.
+  */
+  const balance = { left: 1, right: 1, mono: false };
+
+  /** يضبط مصفوفة 2×2: من أي قناة مصدر إلى أي سماعة، وبأي نسبة. */
+  function applyBalance(ms = 120) {
+    if (!nodes) return;
+    const { left, right, mono } = balance;
+    // في المونو نقسم على 2: جمع قناتين بكامل نسبتهما يقصّ القمم
+    const matrix = mono
+      ? { LL: left * 0.5, RL: left * 0.5, LR: right * 0.5, RR: right * 0.5 }
+      : { LL: left, RL: 0, LR: 0, RR: right };
+    rampGain(nodes.gLL.gain, matrix.LL, ms / 1000);
+    rampGain(nodes.gRL.gain, matrix.RL, ms / 1000);
+    rampGain(nodes.gLR.gain, matrix.LR, ms / 1000);
+    rampGain(nodes.gRR.gain, matrix.RR, ms / 1000);
+  }
+
+  function setBalance(config = {}, fadeMs = 120) {
+    if (typeof config.left === 'number') balance.left = clamp(config.left);
+    if (typeof config.right === 'number') balance.right = clamp(config.right);
+    if (typeof config.mono === 'boolean') balance.mono = config.mono;
+    // لا جدوى من بناء الرسم الصوتي لإعداد محايد: الوضع الطبيعي أصلًا
+    if (!nodes && balance.left === 1 && balance.right === 1 && !balance.mono) return;
+    if (!ensureGraph()) return;
+    applyBalance(fadeMs);
+  }
+
   /**
    * يُبنى الرسم الصوتي عند أول حاجة فقط. مساره:
    *   العنصر ← كنس الانتقال ← الناقل ← (مرشّحان) ← ضاغط ← السماعات
@@ -120,6 +156,16 @@
       comp.attack.value = 0.005;
       comp.release.value = 0.25;
 
+      // توازن القاعتين: مصفوفة 2×2 بعد الضاغط، فلا يردّ الضاغط على خفض جانب
+      const splitter = ctx.createChannelSplitter(2);
+      const merger = ctx.createChannelMerger(2);
+      const gLL = ctx.createGain();
+      const gLR = ctx.createGain();
+      const gRL = ctx.createGain();
+      const gRR = ctx.createGain();
+      gLR.gain.value = 0;
+      gRL.gain.value = 0;
+
       busIn.connect(hp);
       hp.connect(lp);
       lp.connect(musicGain);
@@ -133,9 +179,24 @@
       musicGain.connect(master);
       fxGain.connect(master);
       master.connect(comp);
-      comp.connect(ctx.destination);
 
-      nodes = { busIn, hp, lp, delay, feedback, wet, musicGain, fxGain, master, comp, per: new Map() };
+      comp.connect(splitter);
+      splitter.connect(gLL, 0);
+      splitter.connect(gLR, 0);
+      splitter.connect(gRL, 1);
+      splitter.connect(gRR, 1);
+      gLL.connect(merger, 0, 0);
+      gRL.connect(merger, 0, 0);
+      gLR.connect(merger, 0, 1);
+      gRR.connect(merger, 0, 1);
+      merger.connect(ctx.destination);
+
+      nodes = {
+        busIn, hp, lp, delay, feedback, wet, musicGain, fxGain, master, comp,
+        splitter, merger, gLL, gLR, gRL, gRR,
+        per: new Map()
+      };
+      applyBalance(0);
       attachElement(A);
       attachElement(B);
       if (ctx.state === 'suspended') ctx.resume().catch(() => {});
@@ -831,6 +892,10 @@
           break;
 
         // ------------------------------------------------------ الديجي
+
+        case 'balance':
+          setBalance(command.config || {}, command.fadeMs ?? 120);
+          break;
 
         case 'dj': {
           const config = command.config || {};

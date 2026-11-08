@@ -76,6 +76,17 @@ class Player extends EventEmitter {
       echo: false
     };
 
+    /*
+      توازن جانبي الصالة. معايرة للمكان لا إعداد مزاج، فتُحفظ وتُستعاد عند
+      كل تشغيل: سماعة قرب المدخل تحتاج صوتًا أقل من التي في عمق الصالة،
+      وهذا لا يتغيّر كل ليلة.
+    */
+    this.balance = {
+      left: clamp01(settings.balance?.left ?? 1),
+      right: clamp01(settings.balance?.right ?? 1),
+      mono: !!settings.balance?.mono
+    };
+
     this.order = [];
     this.orderPos = -1;
     this.history = [];
@@ -135,6 +146,7 @@ class Player extends EventEmitter {
     this.rendererReady = true;
     this.command('volume', { value: this.effectiveVolume(), fadeMs: 0 });
     this.command('dj', { config: this.dj, fadeMs: 0 });
+    this.command('balance', { config: this.balance, fadeMs: 0 });
     this.pushFx();
     if (this.state.currentId) {
       this.command('load', {
@@ -511,6 +523,20 @@ class Player extends EventEmitter {
   }
 
   // ---------------------------------------------------------- مود الديجي
+
+  /**
+   * يضبط توازن جانبي الصالة ويبلّغ المحرّك به.
+   * @param {{left?: number, right?: number, mono?: boolean}} patch
+   */
+  setBalance(patch = {}) {
+    if (patch.left !== undefined) this.balance.left = clamp01(patch.left);
+    if (patch.right !== undefined) this.balance.right = clamp01(patch.right);
+    if (typeof patch.mono === 'boolean') this.balance.mono = patch.mono;
+    this.settings.balance = { ...this.balance };
+    this.command('balance', { config: this.balance });
+    this.publish();
+    return this.balance;
+  }
 
   /**
    * يضبط إعدادات الديجي ويبلّغ المحرّك بها.
@@ -980,6 +1006,7 @@ class Player extends EventEmitter {
       repeat: this.state.repeat,
       source: { id: this.state.sourceId, name: this.state.sourceName },
       dj: { ...this.dj },
+      balance: { ...this.balance },
       loop: this.state.loop,
       analysisPending: this.analysisQueue.length + (this.analysisBusy ? 1 : 0),
       activeFx: [...this.activeFx],

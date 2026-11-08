@@ -989,6 +989,56 @@ async function main() {
   const api404 = await fetch(`${base}/api/nope`);
   check('مسار API غير معروف يعيد 404', api404.status === 404);
 
+  section('صوت اليمين واليسار');
+
+  /*
+    معايرة جانبي الصالة. القيم تُحفظ في الإعدادات لأنها معايرة للمكان لا
+    مزاج ليلة: سماعة قرب المدخل تحتاج صوتًا أقل، وهذا لا يتغيّر كل يوم.
+  */
+  commands.length = 0;
+  const balanced = player.setBalance({ left: 0.4, right: 1, mono: true });
+  check('ضبط توازن الجانبين', balanced.left === 0.4 && balanced.right === 1 && balanced.mono === true);
+  const balanceCmd = commands.filter((c) => c.type === 'balance').pop();
+  check('أمر التوازن يصل للمحرّك', !!balanceCmd && balanceCmd.config.left === 0.4 && balanceCmd.config.mono === true);
+  check('التوازن يُحفظ في الإعدادات', settings.balance.left === 0.4 && settings.balance.mono === true);
+  check('التوازن يظهر في حالة التطبيق', player.publicState().balance.left === 0.4);
+
+  player.setBalance({ left: 5, right: -3 });
+  check('قيم التوازن تُحبَس بين 0 و 1', player.balance.left === 1 && player.balance.right === 0);
+
+  const balanceApi = await call('/api/player/balance', { method: 'POST', body: { left: 0.8, right: 0.6, mono: false } });
+  check('مسار API للتوازن يعمل', balanceApi.status === 200 && player.balance.left === 0.8 && player.balance.right === 0.6);
+
+  const staffBalance = await call('/api/player/balance', {
+    method: 'POST',
+    body: { left: 0.1 },
+    tokenOverride: staffToken
+  });
+  check('التوازن للمدير فقط', staffBalance.status === 403 && player.balance.left === 0.8);
+
+  player.setBalance({ left: 1, right: 1, mono: false });
+  commands.length = 0;
+  player.attachRenderer(
+    (command) => commands.push(command),
+    { streamBase: `${base}/api/stream/`, streamSuffix: `?t=${auth.internalToken}`, fxBase: `${base}/api/fx/` }
+  );
+  check('التوازن يُعاد إبلاغه عند إقلاع المحرّك', commands.some((c) => c.type === 'balance'));
+
+  /*
+    المصفوفة في المحرّك هي جوهر الخاصية: قناة لكل سماعة، وفي المونو
+    تُجمَع القناتان مع قسمة على 2 وإلا قُصّت القمم.
+  */
+  // engineSource مقروء أعلاه في قسم البث المباشر
+  check('المحرّك يبني مصفوفة الجانبين', /createChannelSplitter\(2\)/.test(engineSource) && /createChannelMerger\(2\)/.test(engineSource));
+  check('المصفوفة بعد الضاغط لا قبله', /comp\.connect\(splitter\)/.test(engineSource));
+  check('المخرج النهائي من المدمج لا من الضاغط',
+    /merger\.connect\(ctx\.destination\)/.test(engineSource) && !/comp\.connect\(ctx\.destination\)/.test(engineSource));
+  check('المونو يقسم على 2 تجنّبًا لقص القمم', /left \* 0\.5/.test(engineSource) && /right \* 0\.5/.test(engineSource));
+  check('المحرّك ينفّذ أمر التوازن', /case 'balance':/.test(engineSource));
+  // الوضع المحايد يجب ألا يبني الرسم الصوتي: بناؤه يمسك عناصر الصوت بلا داعٍ
+  check('الإعداد المحايد لا يبني الرسم الصوتي',
+    /balance\.left === 1 && balance\.right === 1 && !balance\.mono\) return;/.test(engineSource));
+
   section('عنوان الجهاز على الشبكة');
 
   /*
@@ -1059,6 +1109,15 @@ async function main() {
   await admin.login('123456');
   check('الدخول برمز أطول من أربعة أرقام يعمل (مفتاح دخول)', admin.$('app').hidden === false, why(admin));
   check('رمز المدير يعطي صلاحية المدير', admin.window.__mara.app.role === 'admin');
+
+  // شاشة الإعدادات تُبنى بالكود: بطاقة واحدة تنهار تترك الشاشة فارغة
+  await admin.window.__mara.switchView('settings');
+  await admin.settle();
+  const settingsText = admin.textOf(admin.$('settings-body'));
+  check('شاشة الإعدادات تُبنى للمدير', settingsText.length > 100);
+  check('بطاقة صوت اليمين واليسار تظهر في الإعدادات', settingsText.includes('صوت اليمين واليسار'));
+  check('بطاقة التوازن فيها الجانبان والمونو',
+    settingsText.includes('السماعة اليسرى') && settingsText.includes('السماعة اليمنى') && settingsText.includes('مونو'));
 
   const wrong = loadWebApp({ base });
   await wrong.login('9999');

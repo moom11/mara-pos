@@ -212,6 +212,10 @@ function createServer(ctx) {
       case 'dj':
         player.setDj(req.body || {});
         break;
+      case 'balance':
+        player.setBalance(req.body || {});
+        saveSettings();
+        break;
       case 'dj-next':
         player.djNext();
         break;
@@ -551,6 +555,7 @@ function createServer(ctx) {
     if (typeof patch.staffPin === 'string' && /^\d{4,10}$/.test(patch.staffPin)) s.staffPin = patch.staffPin;
     if (typeof patch.autoStart === 'boolean') s.autoStart = patch.autoStart;
     if (patch.dj && typeof patch.dj === 'object') player.setDj(patch.dj);
+    if (patch.balance && typeof patch.balance === 'object') player.setBalance(patch.balance);
     if (patch.kiosk && typeof patch.kiosk === 'object') s.kiosk = { ...s.kiosk, ...patch.kiosk };
     if (patch.prayer && typeof patch.prayer === 'object') {
       s.prayer = {

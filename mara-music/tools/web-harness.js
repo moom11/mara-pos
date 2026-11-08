@@ -72,6 +72,11 @@ function makeElement(id, tag) {
       }
     },
     appendChild(child) { node.children.push(child); return child; },
+    append(...kids) {
+      for (const kid of kids) {
+        node.children.push(typeof kid === 'string' ? { textContent: kid, children: [] } : kid);
+      }
+    },
     removeChild(child) {
       node.children = node.children.filter((c) => c !== child);
       return child;
@@ -182,7 +187,7 @@ function loadWebApp({ base, token }) {
   const context = vm.createContext(sandbox);
   // الذيل يكشف حالة الواجهة للاختبار: app و store معرّفان بـ const فلا
   // يصيران خصائص على الكائن العام من تلقاء نفسهما
-  vm.runInContext(`${code}\n;globalThis.__mara = { app, store };`, context, {
+  vm.runInContext(`${code}\n;globalThis.__mara = { app, store, switchView, renderSettings };`, context, {
     filename: 'src/web/app.js'
   });
 
@@ -222,6 +227,12 @@ function loadWebApp({ base, token }) {
       await harness.settle();
     },
     get token() { return storage.get('mara.token') || null; },
+    /** كل النص داخل عنصر وأبنائه — الواجهة تبني بطاقاتها بـ appendChild. */
+    textOf(node) {
+      if (!node) return '';
+      const kids = (node.children || []).map((c) => harness.textOf(c)).join(' ');
+      return `${node.textContent || ''} ${kids}`.trim();
+    },
     /** ينتظر تحقّق شرط، فنداءات الشبكة هنا حقيقية ولها زمن فعلي. */
     async waitFor(predicate, ms = 5000) {
       const deadline = Date.now() + ms;

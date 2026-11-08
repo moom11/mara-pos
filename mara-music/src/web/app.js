@@ -1006,6 +1006,9 @@ async function renderSettings() {
     numberRow('مدة الشدّ قبل الدروب (ثانية)', 'dj.dropBuildSec', djSettings.dropBuildSec ?? 4, 1, 12, 1)
   ]));
 
+  // --- توازن جانبي الصالة
+  body.appendChild(balanceCard(settings.balance || { left: 1, right: 1, mono: false }));
+
   // --- مؤثرات مارا
   body.appendChild(fxCard());
 
@@ -1122,6 +1125,87 @@ function fxCard() {
     + '«عبارة» تخفض الموسيقى أثناءها ثم تعيدها، و«إيقاع» يُسمع فوقها. '
     + 'تظهر كأزرار في لوحة الديجي.'));
   return box;
+}
+
+/*
+  توازن جانبي الصالة: يُطبَّق أثناء السحب لا عند الحفظ. صاحب المحل يضبطه
+  وهو واقف في الصالة يسمع، فانتظار زر حفظ يجعل المعايرة تخمينًا.
+*/
+function balanceCard(balance) {
+  const state = {
+    left: typeof balance.left === 'number' ? balance.left : 1,
+    right: typeof balance.right === 'number' ? balance.right : 1,
+    mono: !!balance.mono
+  };
+  let sending = false;
+  let pending = false;
+
+  /** يرسل آخر قيمة فقط: السحب يولّد أحداثًا أكثر مما تتحمّله الشبكة. */
+  async function push() {
+    if (sending) { pending = true; return; }
+    sending = true;
+    try {
+      await cmd('balance', state);
+    } catch (err) {
+      toast(err.message);
+    } finally {
+      sending = false;
+      if (pending) { pending = false; push(); }
+    }
+  }
+
+  const sideRow = (label, side) => {
+    const r = el('div', 'row balance-row');
+    r.appendChild(el('label', null, label));
+    const group = el('div', 'inline');
+    const value = el('span', 'balance-value', `${Math.round(state[side] * 100)}%`);
+    const input = el('input');
+    input.type = 'range';
+    input.min = 0;
+    input.max = 100;
+    input.step = 5;
+    input.value = String(Math.round(state[side] * 100));
+    input.addEventListener('input', () => {
+      state[side] = Number(input.value) / 100;
+      value.textContent = `${input.value}%`;
+      push();
+    });
+    group.appendChild(input);
+    group.appendChild(value);
+    r.appendChild(group);
+    return r;
+  };
+
+  const monoRow = row('دمج القناتين (مونو)');
+  const monoInput = el('input');
+  monoInput.type = 'checkbox';
+  monoInput.className = 'switch';
+  monoInput.checked = state.mono;
+  monoInput.addEventListener('change', () => {
+    state.mono = monoInput.checked;
+    push();
+  });
+  monoRow.appendChild(monoInput);
+
+  const resetRow = buttonRow('إرجاع التوازن للوضع الطبيعي', async () => {
+    state.left = 1;
+    state.right = 1;
+    state.mono = false;
+    await push();
+    renderSettings();
+  });
+
+  const card2 = card('صوت اليمين واليسار', [
+    sideRow('السماعة اليسرى', 'left'),
+    sideRow('السماعة اليمنى', 'right'),
+    monoRow,
+    resetRow
+  ]);
+  const note = el('p', 'card-note',
+    'المونو يرسل المزيج كاملًا للجانبين، فلا يفوت من يجلس قرب سماعة واحدة '
+    + 'نصف الأغنية. لا يعمل التوازن مع البث المباشر.');
+  card2.appendChild(note);
+  return card2;
 }
 
 function card(title, rows) {

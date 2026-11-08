@@ -571,6 +571,18 @@ input[type=range]::-moz-range-thumb { width: 20px; height: 20px; border: none; b
 .row input.small { max-width: 74px; }
 .row .inline { display: flex; align-items: center; gap: 8px; }
 .row .unit { color: var(--muted); font-size: 12.5px; }
+/* شريط توازن الجانبين: يحتاج عرضًا كافيًا ليُضبط بالإصبع لا بالتخمين */
+.balance-row .inline { flex: 1.4; }
+.balance-row input[type=range] { flex: 1; min-width: 110px; }
+.balance-value {
+  color: var(--accent);
+  font-size: 13.5px;
+  min-width: 42px;
+  text-align: left;
+  direction: ltr;
+  font-variant-numeric: tabular-nums;
+}
+.card-note { margin: 10px 0 0; color: var(--muted); font-size: 12.5px; line-height: 1.7; }
 .row .value { color: var(--muted); font-size: 13.5px; text-align: left; direction: ltr; }
 .row-btn {
   width: 100%;
