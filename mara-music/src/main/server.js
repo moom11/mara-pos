@@ -728,6 +728,29 @@ function uniqueName(dir, name) {
   return candidate;
 }
 
+/*
+  عناوين الجهاز على الشبكة، مرتّبة بالأصلح للجوال أولًا.
+
+  الترتيب ضروري لا تجميلي: الوحي قد يحمل أكثر من كرت شبكة (واي فاي،
+  بلوتوث، كروت وهمية)، وos.networkInterfaces لا يرتّب شيئًا. فلو أخذنا
+  أول عنوان صادفناه لعرضنا في رمز QR عنوانًا لا يصل إليه الجوال أبدًا.
+
+  الأولوية: شبكة منزلية حقيقية (192.168 ثم 10 ثم 172.16-31)، ثم كرت
+  اسمه واي فاي أو إيثرنت لا كرتًا وهميًا، وأخيرًا العناوين التي يمنحها
+  ويندوز لنفسه حين يفشل DHCP (169.254) فهي لا تصل إلى شيء.
+*/
+function addressRank({ name, address }) {
+  if (address.startsWith('169.254.')) return 90; // فشل DHCP: عنوان لا يصل
+  const lower = name.toLowerCase();
+  const virtual = /vethernet|virtual|vmware|virtualbox|hyper-v|loopback|bluetooth|tailscale|zerotier|wsl|tap|tun/.test(lower);
+  let rank = virtual ? 40 : 0;
+  if (address.startsWith('192.168.')) rank += 0;
+  else if (address.startsWith('10.')) rank += 1;
+  else if (/^172\.(1[6-9]|2\d|3[01])\./.test(address)) rank += 2;
+  else rank += 10; // عنوان عام أو غير متوقّع على شبكة مطعم
+  return rank;
+}
+
 function lanAddresses() {
   const out = [];
   const nets = os.networkInterfaces();
@@ -736,7 +759,7 @@ function lanAddresses() {
       if (addr.family === 'IPv4' && !addr.internal) out.push({ name, address: addr.address });
     }
   }
-  return out;
+  return out.sort((a, b) => addressRank(a) - addressRank(b));
 }
 
-module.exports = { createServer, lanAddresses };
+module.exports = { createServer, lanAddresses, addressRank };

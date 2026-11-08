@@ -989,6 +989,41 @@ async function main() {
   const api404 = await fetch(`${base}/api/nope`);
   check('مسار API غير معروف يعيد 404', api404.status === 404);
 
+  section('عنوان الجهاز على الشبكة');
+
+  /*
+    عنوان الوحي كان يتغيّر كل فترة فيفقد الجوال الوصول إليه. أداتان:
+    ترتيب العناوين حتى يعرض رمز QR العنوان الذي يصل إليه الجوال فعلًا،
+    وسكربت يثبّت العنوان على ويندوز نفسه.
+  */
+  const { addressRank } = require('../src/main/server');
+  const rankOf = (name, address) => addressRank({ name, address });
+  check('عنوان 192.168 يسبق عنوان 10.x',
+    rankOf('Wi-Fi', '192.168.3.107') < rankOf('Ethernet', '10.0.0.5'));
+  check('الكرت الحقيقي يسبق الكرت الوهمي',
+    rankOf('Wi-Fi', '192.168.3.107') < rankOf('vEthernet (WSL)', '192.168.3.108'));
+  check('عنوان فشل DHCP (169.254) يأتي أخيرًا',
+    rankOf('Wi-Fi', '169.254.10.20') > rankOf('vEthernet (WSL)', '10.0.0.5'));
+  check('ترتيب العناوين لا يسقط أيًّا منها',
+    [{ name: 'a', address: '10.0.0.1' }, { name: 'b', address: '169.254.1.1' }]
+      .sort((x, y) => addressRank(x) - addressRank(y)).length === 2);
+
+  const pinPs1 = path.join(projectRoot, 'tools', 'pin-ip.ps1');
+  check('توجد أداة تثبيت العنوان',
+    fs.existsSync(pinPs1)
+    && fs.existsSync(path.join(projectRoot, 'تثبيت-العنوان.bat'))
+    && fs.existsSync(path.join(projectRoot, 'إرجاع-العنوان-التلقائي.bat')));
+  const pinSource = fs.readFileSync(pinPs1, 'utf8');
+  check('تثبيت العنوان يختار الكرت صاحب البوّابة لا أي كرت', /IPv4DefaultGateway/.test(pinSource));
+  // الحارس الأهم: تثبيت عنوان خاطئ يعزل الجهاز فلا تحديث ولا بث
+  check('تثبيت العنوان يتحقّق من الشبكة بعد التغيير', /function Test-Network/.test(pinSource));
+  check('تثبيت العنوان يرجع تلقائيًا عند فشل الشبكة',
+    /if \(-not \(Test-Network[^\n]*\)\) \{[\s\S]{0,200}?Restore-Dhcp/.test(pinSource));
+  check('تثبيت العنوان يضبط DNS صريحًا (وإلا انقطع الإنترنت)', /Set-DnsClientServerAddress[^\n]*-ServerAddresses/.test(pinSource));
+  check('تثبيت العنوان يفحص أن العنوان الجديد غير مستعمل', /Test-Connection[^\n]*\$target/.test(pinSource));
+  check('تثبيت العنوان لا يفرض عنوانًا مكتوبًا في السكربت', !/192\.168\.\d+\.\d+/.test(pinSource));
+  check('توجد طريقة للرجوع للعنوان التلقائي', /\[switch\]\$Undo/.test(pinSource) && /function Restore-Dhcp/.test(pinSource));
+
   section('واجهة الجوال');
 
   /*
