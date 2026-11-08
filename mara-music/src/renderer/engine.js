@@ -36,6 +36,14 @@
   // نقاط مشتقّة من التحليل: أين يبدأ المزج، ومن أين تبدأ الأغنية القادمة
   let mixAtAbs = 0;
   let nextStartAt = 0;
+  /*
+    قصّ الأغنية: نهاية مبكّرة تُعامل معاملة نهاية الملف. نحفظها للأغنية
+    الحالية وللمجهّزة معًا، فالأدوار تتبادل عند المزج ولو كانت واحدة
+    لحملت الأغنية القادمة نهاية سابقتها.
+  */
+  let endAtCurrent = 0;
+  let endAtNext = 0;
+  let trimEnded = false;
   // لوب المقطع: {start, end} داخل الأغنية الحالية
   let loop = null;
 
@@ -150,11 +158,24 @@
       const fxGain = ctx.createGain();
       const master = ctx.createGain();
       const comp = ctx.createDynamicsCompressor();
-      comp.threshold.value = -6;
-      comp.knee.value = 12;
-      comp.ratio.value = 4;
-      comp.attack.value = 0.005;
-      comp.release.value = 0.25;
+      /*
+        حدّاد قمم لا ضاغط عريض.
+
+        كان هنا ضاغط عند -6 بنسبة 4:1 ورُكبة 12، وهذا يعمل على الموسيقى
+        العادية طول الوقت لا على القمم وحدها: يخفض كل ما يعلو ثم يرجعه،
+        فتضيع حِدّة الطبلة ويبهت الفرق بين الهادئ والقوي — وهو عين ما
+        يُسمّيه السامع "صوت مضغوط" مقابل "صفاء".
+
+        غرض هذه الحلقة حماية السماعات من قمم المؤثرات فقط. فالحدّ قريب من
+        السقف ونسبته عالية ورُكبته صفر: لا يمسّ الموسيقى إلا حين تقترب
+        فعلًا من القصّ. وتسوية الجهارة تُبقي الأغاني أصلًا دون ذلك بكثير،
+        فهذه الحلقة تكاد لا تعمل في الليلة العادية.
+      */
+      comp.threshold.value = -1.5;
+      comp.knee.value = 0;
+      comp.ratio.value = 20;
+      comp.attack.value = 0.003;
+      comp.release.value = 0.12;
 
       // توازن القاعتين: مصفوفة 2×2 بعد الضاغط، فلا يردّ الضاغط على خفض جانب
       const splitter = ctx.createChannelSplitter(2);
@@ -589,7 +610,7 @@
     }
   }
 
-  function loadTrack({ id, url, startAt = 0, autoplay = true, gain = 1 }) {
+  function loadTrack({ id, url, startAt = 0, autoplay = true, gain = 1, endAt = 0 }) {
     const isStream = String(id || '').startsWith('stream:');
     intent = autoplay ? 'playing' : 'paused';
     pauseSeq += 1;
@@ -625,6 +646,8 @@
     }
 
     currentId = id;
+    endAtCurrent = Number(endAt) || 0;
+    trimEnded = false;
     current.pause();
     current.src = url;
     current.load();
@@ -653,6 +676,7 @@
     // نقاط التحليل تصل مع التحميل المسبق لأن العملية الرئيسية تعرف الأغنيتين حينها
     mixAtAbs = Number(command.mixAtSec) || 0;
     nextStartAt = Number(command.nextStartAt) || 0;
+    endAtNext = Number(command.endAt) || 0;
     standbyGain = Number.isFinite(command.gain) ? command.gain : 1;
     if (!command.id || !command.url) {
       preloaded = null;
@@ -726,6 +750,9 @@
     standbyGain = 1;
     mixAtAbs = 0;
     nextStartAt = 0;
+    endAtCurrent = endAtNext;
+    endAtNext = 0;
+    trimEnded = false;
     loop = null;
     currentId = nextId;
     preloaded = null;
@@ -761,18 +788,29 @@
       const duration = el.duration;
       if (!Number.isFinite(duration) || duration <= 0) return;
       const mix = dj.enabled && dj.autoMix && el !== S;
+      // نهاية الأغنية عندنا هي نهاية القصّ إن وُجدت، لا نهاية الملف
+      const endsAt = endAtCurrent > 0 ? Math.min(endAtCurrent, duration) : duration;
 
       let shouldMix;
       if (mix && mixAtAbs > 0) {
         // نقطة هبوط الأغنية من التحليل — أدقّ من عدّ الثواني من النهاية
-        shouldMix = el.currentTime >= mixAtAbs;
+        // ولا تتجاوز القصّ: المزج يجب أن ينتهي قبل نقطة النهاية لا بعدها
+        shouldMix = el.currentTime >= Math.min(mixAtAbs, Math.max(0, endsAt - crossfadeSec));
       } else {
         const startAt = mix ? Math.max(crossfadeSec, Number(dj.mixAtSec) || 12) : crossfadeSec;
-        shouldMix = startAt > 0 && duration - el.currentTime <= startAt;
+        shouldMix = startAt > 0 && endsAt - el.currentTime <= startAt;
       }
 
       if (shouldMix && preloaded && standby.readyState >= 3 && !el.paused) {
         startPreloadedNow({ fade: true, mix });
+        return;
+      }
+
+      // لا أغنية مجهّزة: القصّ ينهي الأغنية كما لو انتهى ملفها
+      if (endAtCurrent > 0 && !trimEnded && el.currentTime >= endsAt) {
+        trimEnded = true;
+        el.pause();
+        emit({ type: 'ended', id: currentId });
       }
     });
 
@@ -892,6 +930,12 @@
           break;
 
         // ------------------------------------------------------ الديجي
+
+        case 'trim-set':
+          // تغيّر القصّ أثناء التشغيل: نرفع الحدّ بلا إعادة تحميل
+          endAtCurrent = Number(command.endAt) || 0;
+          trimEnded = false;
+          break;
 
         case 'balance':
           setBalance(command.config || {}, command.fadeMs ?? 120);

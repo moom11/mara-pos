@@ -265,7 +265,12 @@ function createServer(ctx) {
         duration: t.duration,
         cover: t.cover ? `/api/cover/${t.id}` : null,
         playCount: t.playCount || 0,
-        addedAt: t.addedAt
+        addedAt: t.addedAt,
+        trim: t.trim || null,
+        // الجوال يحتاج نقطتي التحليل ليعرض "قصّ تلقائي" بقيم معقولة
+        marks: t.analysis && !t.analysis.failed
+          ? { intro: t.analysis.introEndSec, outro: t.analysis.outroStartSec }
+          : null
       }))
     });
   });
@@ -284,6 +289,33 @@ function createServer(ctx) {
     const ok = await library.deleteTrack(req.params.id);
     if (!ok) return res.status(404).json({ error: 'الأغنية غير موجودة' });
     res.json({ ok: true });
+  });
+
+  /*
+    قصّ أغنية: نقطة بداية ونقطة نهاية تُحفظان مع الأغنية. ما قبل البداية
+    وما بعد النهاية لا يُعزف أبدًا — لمقدّمة طويلة أو نهاية تتلاشى ببطء.
+    القيمة null تلغي القصّ وترجع الأغنية كاملة.
+  */
+  app.put('/api/library/:id/trim', requireAdmin, (req, res) => {
+    const track = library.get(req.params.id);
+    if (!track) return res.status(404).json({ error: 'الأغنية غير موجودة' });
+
+    const clear = req.body?.trim === null || req.body?.clear === true;
+    let wanted = { start: req.body?.start, end: req.body?.end === null ? null : req.body?.end };
+    // القصّ التلقائي: نقطتا التحليل نفسهما — نهاية المقدمة وبداية الخاتمة
+    if (req.body?.fromAnalysis === true) {
+      const analysis = track.analysis;
+      if (!analysis || analysis.failed) {
+        return res.status(400).json({ error: 'هذه الأغنية لم تُحلَّل بعد — فعّل التحليل وانتظر قليلًا' });
+      }
+      wanted = { start: analysis.introEndSec || 0, end: analysis.outroStartSec || null };
+    }
+    const ok = library.setTrim(req.params.id, clear ? null : wanted);
+    if (!ok) return res.status(400).json({ error: 'نقطتا القصّ غير صالحتين — المقطع أقصر من 5 ثوان' });
+
+    // الأغنية قيد التشغيل أو مجهّزة للمزج: تبليغ المحرّك فورًا بالحدود الجديدة
+    player.refreshTrim(req.params.id);
+    res.json({ ok: true, trim: library.get(req.params.id).trim || null });
   });
 
   app.get('/api/cover/:id', (req, res) => {

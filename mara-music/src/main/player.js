@@ -13,6 +13,7 @@ const DJ_DEFAULTS = {
   analyze: true, // تحليل الموجة الصوتية في الخلفية
   autoLevel: true, // تسوية جهارة الأغاني اعتمادًا على التحليل
   smartMix: true, // استخدام نقاط التحليل بدل الأرقام الثابتة
+  vibeOrder: false, // ترتيب الأغاني على تقارب الجهارة لا على العشوائية
   everyMin: 0, // 0 = معطّل؛ وإلا أقصى مدة تُعزف من أي أغنية قبل الانتقال
   mixAtSec: 12,
   skipIntroSec: 0,
@@ -153,6 +154,7 @@ class Player extends EventEmitter {
         id: this.state.currentId,
         url: this.currentUrl(),
         startAt: this.state.stream ? 0 : this.state.position,
+        endAt: this.state.stream ? 0 : this.trimOf(this.state.currentId).end,
         autoplay: !!this.resumeOnBoot,
         gain: this.gainFor(this.library.get(this.state.currentId))
       });
@@ -247,7 +249,40 @@ class Player extends EventEmitter {
 
   buildOrder() {
     const ids = this.playlists.trackIdsOf(this.state.sourceId);
-    return this.state.shuffle ? shuffled(ids) : ids.slice();
+    if (!this.state.shuffle) return ids.slice();
+    return this.dj.vibeOrder ? this.vibeOrder(ids) : shuffled(ids);
+  }
+
+  /*
+    ترتيب على الفايب: أشرطة جهارة لا عشوائية محضة.
+
+    العشوائية تضع أغنية هادئة بعد أخرى صاخبة فيُقطع جو الصالة. فنرتّب
+    الأغاني المحلَّلة بالجهارة، ونقسمها أربعة أشرطة، ونخلط داخل كل شريط
+    ولا نخلط بين الأشرطة: الجو يصعد أو يهبط متّصلًا، ولا تتكرّر الليلة
+    نفسها لأن الخلط داخل الأشرطة والاتجاه عشوائيان.
+
+    الأغاني غير المحلَّلة تُلحَق في النهاية بترتيب عشوائي: لا نعرف جوّها.
+  */
+  vibeOrder(ids) {
+    const known = [];
+    const unknown = [];
+    for (const id of ids) {
+      const track = this.library.get(id);
+      const db = track && track.analysis && !track.analysis.failed
+        ? track.analysis.loudnessDb : null;
+      if (Number.isFinite(db)) known.push({ id, db });
+      else unknown.push(id);
+    }
+    if (known.length < 3) return shuffled(ids);
+
+    known.sort((a, b) => a.db - b.db);
+    const perBand = Math.max(2, Math.ceil(known.length / 4));
+    const out = [];
+    for (let i = 0; i < known.length; i += perBand) {
+      out.push(...shuffled(known.slice(i, i + perBand)));
+    }
+    if (Math.random() < 0.5) out.reverse(); // ليلة تصعد وليلة تهدأ
+    return [...out.map((t) => t.id), ...shuffled(unknown)];
   }
 
   refreshOrder({ keepCurrent = true } = {}) {
@@ -335,7 +370,16 @@ class Player extends EventEmitter {
     this.state.loop = null; // اللوب يخص أغنية بعينها
     this.clearAutoPause({ silent: true });
     this.library.markPlayed(id);
-    this.command('load', { id, url: this.urlFor(id), startAt: 0, autoplay: true, gain: this.gainFor(track) });
+    const trim = this.trimOf(id);
+    this.state.position = trim.start;
+    this.command('load', {
+      id,
+      url: this.urlFor(id),
+      startAt: trim.start,
+      endAt: trim.end,
+      autoplay: true,
+      gain: this.gainFor(track)
+    });
     this.schedulePreload();
     this.resetMixTimer();
     this.publish();
@@ -549,6 +593,7 @@ class Player extends EventEmitter {
     if (typeof patch.analyze === 'boolean') this.dj.analyze = patch.analyze;
     if (typeof patch.autoLevel === 'boolean') this.dj.autoLevel = patch.autoLevel;
     if (typeof patch.smartMix === 'boolean') this.dj.smartMix = patch.smartMix;
+    if (typeof patch.vibeOrder === 'boolean') this.dj.vibeOrder = patch.vibeOrder;
     if (typeof patch.sweep === 'boolean') this.dj.sweep = patch.sweep;
     if (typeof patch.echoOnMix === 'boolean') this.dj.echoOnMix = patch.echoOnMix;
     if (typeof patch.echo === 'boolean') this.dj.echo = patch.echo;
@@ -652,6 +697,33 @@ class Player extends EventEmitter {
       this.library.setAnalysis(event.id, null);
     }
     setTimeout(() => this.startAnalysis(), event.busy ? 4000 : 1200);
+  }
+
+  /**
+   * نقطتا قصّ أغنية: البداية التي يُبدأ منها والنهاية التي يُتوقّف عندها.
+   * القصّ من عمل صاحب المحل فيُقدَّم على نقاط التحليل وعلى تجاوز المقدمة.
+   */
+  trimOf(id) {
+    const track = id ? this.library.get(id) : null;
+    const trim = track && track.trim;
+    if (!trim) return { start: 0, end: 0 };
+    return {
+      start: Number(trim.start) || 0,
+      end: Number.isFinite(trim.end) && trim.end > 0 ? trim.end : 0
+    };
+  }
+
+  /**
+   * يبلّغ المحرّك بقصّ تغيّر لأغنية بعينها.
+   * الأغنية الحالية: نُحدّث حدّها بلا إعادة تحميل حتى لا تُقطع الموسيقى.
+   * المجهّزة للمزج: يكفي إعادة بناء أمر التحميل المسبق.
+   */
+  refreshTrim(id) {
+    if (!id) return;
+    if (id === this.state.currentId && !this.state.stream) {
+      this.command('trim-set', { endAt: this.trimOf(id).end });
+    }
+    if (this.pendingNext && this.pendingNext.id === id) this.schedulePreload();
   }
 
   /** معامل تسوية الجهارة لأغنية — نخفض العالية ولا نرفع الخافتة. */
@@ -870,7 +942,7 @@ class Player extends EventEmitter {
     }
     const track = this.library.get(pending.id);
     this.state.currentId = pending.id;
-    this.state.position = 0;
+    this.state.position = this.trimOf(pending.id).start;
     this.state.duration = track ? track.duration || 0 : 0;
     this.state.status = 'playing';
     this.state.loop = null;
@@ -893,6 +965,7 @@ class Player extends EventEmitter {
     const crossfade = Number(this.settings.crossfadeSec) || 0;
     const currentAnalysis = this.analysisOf(this.state.currentId);
     const nextAnalysis = next ? this.analysisOf(next.id) : null;
+    const nextTrim = next ? this.trimOf(next.id) : { start: 0, end: 0 };
     this.command('preload', {
       id: next ? next.id : null,
       url: next ? this.urlFor(next.id) : null,
@@ -900,7 +973,8 @@ class Player extends EventEmitter {
       gain: next ? this.gainFor(this.library.get(next.id)) : 1,
       // نقطة هبوط الأغنية الحالية، وموضع بدء القادمة بعد مقدمتها
       mixAtSec: currentAnalysis ? currentAnalysis.outroStartSec : 0,
-      nextStartAt: nextAnalysis ? nextAnalysis.introEndSec : 0
+      nextStartAt: nextTrim.start || (nextAnalysis ? nextAnalysis.introEndSec : 0),
+      endAt: nextTrim.end
     });
   }
 
@@ -910,7 +984,8 @@ class Player extends EventEmitter {
    * أن وضعها أولًا — يلاحظه الزبون ويبدو عطلًا.
    */
   reshuffleAvoidingCurrent() {
-    const ids = shuffled(this.playlists.trackIdsOf(this.state.sourceId));
+    const all = this.playlists.trackIdsOf(this.state.sourceId);
+    const ids = this.dj.vibeOrder ? this.vibeOrder(all) : shuffled(all);
     if (ids.length > 1 && ids[0] === this.state.currentId) {
       const swapAt = 1 + Math.floor(Math.random() * (ids.length - 1));
       [ids[0], ids[swapAt]] = [ids[swapAt], ids[0]];
@@ -1042,7 +1117,8 @@ function publicTrack(t) {
     album: t.album,
     duration: t.duration,
     cover: t.cover ? `/api/cover/${t.id}` : null,
-    playCount: t.playCount || 0
+    playCount: t.playCount || 0,
+    trim: t.trim || null
   };
 }
 

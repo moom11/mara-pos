@@ -71,7 +71,8 @@ const app = {
   localPosition: 0,
   library: { q: '', sort: 'title', offset: 0, limit: 60, total: 0, items: [] },
   currentPlaylist: null,
-  sheetTrack: null
+  sheetTrack: null,
+  trimTrack: null
 };
 
 // ============================================================ نداءات الشبكة
@@ -865,6 +866,10 @@ async function handleSheetAction(action) {
         }
         break;
       }
+      case 'trim':
+        closeSheet();
+        openTrim(track);
+        return;
       case 'delete':
         if (confirm(`حذف "${track.title}" من جهاز المطعم نهائيًا؟`)) {
           await api(`/api/library/${track.id}`, { method: 'DELETE' });
@@ -879,6 +884,60 @@ async function handleSheetAction(action) {
     toast(err.message);
   }
   closeSheet();
+}
+
+// ========================================================== قصّ الأغنية
+
+/*
+  القصّ يُحفظ مع الأغنية لا مع الجلسة: مقدّمة طويلة تُقصّ مرة واحدة فلا
+  تُسمع مرة أخرى. والقيم بالثواني لا بالدقائق — صاحب المحل يقرأ الزمن من
+  شريط التشغيل نفسه.
+*/
+function openTrim(track) {
+  app.trimTrack = track;
+  const trim = track.trim || {};
+  $('trim-title').textContent = track.title;
+  $('trim-start').value = trim.start ? String(trim.start) : '';
+  $('trim-end').value = trim.end ? String(trim.end) : '';
+  const marks = track.marks;
+  $('trim-hint').textContent = marks
+    ? `طول الأغنية ${fmt(track.duration)} — التحليل يرى المقدمة تنتهي عند ${marks.intro}s والخاتمة تبدأ عند ${marks.outro}s`
+    : `طول الأغنية ${fmt(track.duration)} — لم تُحلَّل بعد، فالقصّ التلقائي غير متاح لها`;
+  $('trim-auto').disabled = !marks;
+  $('trim-backdrop').hidden = false;
+}
+
+function closeTrim() {
+  $('trim-backdrop').hidden = true;
+  app.trimTrack = null;
+}
+
+async function saveTrim(body) {
+  const track = app.trimTrack;
+  if (!track) return closeTrim();
+  try {
+    const res = await api(`/api/library/${track.id}/trim`, { method: 'PUT', body });
+    track.trim = res.trim;
+    toast(res.trim ? `قُصّت: من ${res.trim.start}s إلى ${res.trim.end ?? 'النهاية'}` : 'رجعت الأغنية كاملة');
+    closeTrim();
+    loadLibrary(true);
+  } catch (err) {
+    toast(err.message);
+  }
+}
+
+function wireTrim() {
+  $('trim-backdrop').addEventListener('click', (e) => {
+    if (e.target.id === 'trim-backdrop') closeTrim();
+  });
+  $('trim-close').onclick = closeTrim;
+  $('trim-auto').onclick = () => saveTrim({ fromAnalysis: true });
+  $('trim-clear').onclick = () => saveTrim({ clear: true });
+  $('trim-save').onclick = () => {
+    const start = Number($('trim-start').value) || 0;
+    const endRaw = $('trim-end').value;
+    saveTrim({ start, end: endRaw === '' ? null : Number(endRaw) });
+  };
 }
 
 // ================================================================ الرفع
@@ -1000,6 +1059,7 @@ async function renderSettings() {
     numberRow('تجاوز بداية الأغنية القادمة (ثانية)', 'dj.skipIntroSec', djSettings.skipIntroSec ?? 0, 0, 30, 1),
     toggleRow('تحليل الأغاني في الخلفية', 'dj.analyze', djSettings.analyze !== false),
     toggleRow('مزج ذكي من نقاط التحليل', 'dj.smartMix', djSettings.smartMix !== false),
+    toggleRow('ترتيب الأغاني على الفايب (تقارب الجهارة)', 'dj.vibeOrder', djSettings.vibeOrder === true),
     toggleRow('تسوية جهارة الأغاني', 'dj.autoLevel', djSettings.autoLevel !== false),
     toggleRow('كنس ترددي عند الانتقال', 'dj.sweep', djSettings.sweep !== false),
     toggleRow('ذيل صدى عند الانتقال', 'dj.echoOnMix', djSettings.echoOnMix !== false),
@@ -1666,6 +1726,7 @@ function wireEvents() {
   for (const btn of $('sheet').querySelectorAll('button')) {
     btn.onclick = () => handleSheetAction(btn.dataset.act);
   }
+  wireTrim();
 
   // تقدّم محلي سلس — يعمل فقط عند عرض شاشة "الآن"
   setInterval(() => {

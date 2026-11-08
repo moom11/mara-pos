@@ -739,6 +739,10 @@ body:not(.is-admin) .admin-only { display: none !important; }
 }
 .sheet button.danger { color: var(--danger); }
 .sheet button.cancel { background: none; border: none; color: var(--muted); }
+.sheet button.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.sheet-note { margin: 0 6px 4px; color: var(--muted); font-size: 12.5px; line-height: 1.7; }
+/* صفوف القصّ داخل الورقة: الحدّ السفلي للصفوف يشوّش هنا */
+.sheet .row { border-bottom: none; padding: 5px 6px; }
 
 .detail { position: relative; }
 

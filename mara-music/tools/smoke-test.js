@@ -589,6 +589,186 @@ async function main() {
   check('إطفاء المزج الذكي يلغي نقاط التحليل', commands.filter((c) => c.type === 'preload').pop().mixAtSec === 0);
   await call('/api/player/dj', { method: 'POST', body: { smartMix: true } });
 
+  section('قصّ الأغنية');
+
+  /*
+    القصّ من عمل صاحب المحل: مقدّمة طويلة أو نهاية تتلاشى ببطء تُقصّ مرة
+    واحدة فلا تُسمع مرة أخرى. ولأنه ليس حسابًا مشتقًّا فهو يبقى على كل
+    حال — إعادة الفحص لا تمحوه.
+  */
+  const trimTrack = tracks[4];
+  // الملفات التجريبية أطوالها مختلفة، فنحسب النقاط من طول الأغنية نفسها
+  const trimLen = library.get(trimTrack.id).duration;
+  const trimEnd = trimLen - 5;
+  const trimRes = await call(`/api/library/${trimTrack.id}/trim`, {
+    method: 'PUT',
+    body: { start: 7, end: trimEnd }
+  });
+  check('حفظ نقطتي القصّ', trimRes.status === 200 && library.get(trimTrack.id).trim.start === 7);
+  check('القصّ يظهر في بيانات الأغنية', (await call('/api/library?q=')).data.items
+    .find((t) => t.id === trimTrack.id).trim.end === trimEnd);
+
+  const shortTrim = await call(`/api/library/${trimTrack.id}/trim`, {
+    method: 'PUT',
+    body: { start: 10, end: 12 }
+  });
+  check('مقطع أقصر من 5 ثوان يُرفض', shortTrim.status === 400 && library.get(trimTrack.id).trim.start === 7);
+
+  const backwards = await call(`/api/library/${trimTrack.id}/trim`, {
+    method: 'PUT',
+    body: { start: 30, end: 10 }
+  });
+  check('نهاية قبل البداية تُرفض', backwards.status === 400);
+
+  // نهاية أبعد من طول الأغنية تُحبَس عند طولها لا تُرفض
+  const beyond = await call(`/api/library/${trimTrack.id}/trim`, {
+    method: 'PUT',
+    body: { start: 7, end: trimLen + 500 }
+  });
+  check('نهاية أبعد من الأغنية تُحبَس عند طولها',
+    beyond.status === 200 && library.get(trimTrack.id).trim.end === trimLen);
+
+  await call(`/api/library/${trimTrack.id}/trim`, { method: 'PUT', body: { start: 7, end: trimEnd } });
+
+  commands.length = 0;
+  player.playNow(trimTrack.id);
+  const trimLoad = commands.filter((c) => c.type === 'load').pop();
+  check('التشغيل يبدأ من نقطة القصّ', trimLoad.startAt === 7);
+  check('نهاية القصّ تصل للمحرّك', trimLoad.endAt === trimEnd);
+  check('الموضع المعروض يبدأ من القصّ', player.publicState().position === 7);
+
+  // الأغنية المقصوصة كأغنية قادمة: بدايتها تسبق نقاط التحليل
+  player.state.queue = [trimTrack.id];
+  player.schedulePreload();
+  const trimPreload = commands.filter((c) => c.type === 'preload').pop();
+  check('القصّ يُقدَّم على نقطة التحليل للأغنية القادمة', trimPreload.nextStartAt === 7);
+  check('نهاية القصّ تُرسل مع التحميل المسبق', trimPreload.endAt === trimEnd);
+  player.state.queue = [];
+
+  // تعديل القصّ أثناء التشغيل لا يُعيد تحميل الأغنية — القطع في الصالة مرفوض
+  player.playNow(trimTrack.id);
+  commands.length = 0;
+  const newEnd = trimLen - 3;
+  await call(`/api/library/${trimTrack.id}/trim`, { method: 'PUT', body: { start: 7, end: newEnd } });
+  check('تعديل القصّ يبلّغ المحرّك بلا إعادة تحميل',
+    commands.some((c) => c.type === 'trim-set' && c.endAt === newEnd)
+    && !commands.some((c) => c.type === 'load'));
+
+  // القصّ التلقائي: على أغنية تحليلها يوافق طولها الحقيقي
+  const autoTrack = tracks[5];
+  const autoLen = library.get(autoTrack.id).duration;
+  library.setAnalysis(autoTrack.id, {
+    duration: autoLen,
+    loudnessDb: -14,
+    introEndSec: 6,
+    outroStartSec: autoLen - 4,
+    peakSec: 10
+  });
+  const autoTrim = await call(`/api/library/${autoTrack.id}/trim`, {
+    method: 'PUT',
+    body: { fromAnalysis: true }
+  });
+  check('القصّ التلقائي يأخذ نقطتي التحليل',
+    autoTrim.status === 200
+    && library.get(autoTrack.id).trim.start === 6
+    && library.get(autoTrack.id).trim.end === autoLen - 4);
+
+  const noAnalysisTrim = await call(`/api/library/${tracks[3].id}/trim`, {
+    method: 'PUT',
+    body: { fromAnalysis: true }
+  });
+  check('القصّ التلقائي يرفض أغنية بلا تحليل', noAnalysisTrim.status === 400);
+
+  await library.scan({ full: true });
+  check('القصّ ينجو من الفحص الكامل', library.get(trimTrack.id).trim.end === newEnd);
+
+  const clearTrim = await call(`/api/library/${trimTrack.id}/trim`, { method: 'PUT', body: { clear: true } });
+  check('إلغاء القصّ يرجع الأغنية كاملة', clearTrim.status === 200 && library.get(trimTrack.id).trim === null);
+  await call(`/api/library/${autoTrack.id}/trim`, { method: 'PUT', body: { clear: true } });
+
+  const staffTrim = await call(`/api/library/${trimTrack.id}/trim`, {
+    method: 'PUT',
+    body: { start: 5, end: 20 },
+    tokenOverride: staffToken
+  });
+  check('القصّ للمدير فقط', staffTrim.status === 403);
+
+  // المحرّك: نهاية القصّ تُعامل معاملة نهاية الملف
+  check('المحرّك يحمل نهاية لكل من الحالية والمجهّزة',
+    /let endAtCurrent = 0;/.test(engineSource) && /let endAtNext = 0;/.test(engineSource));
+  check('المحرّك ينهي الأغنية عند نقطة القصّ',
+    /endAtCurrent > 0 && !trimEnded && el\.currentTime >= endsAt/.test(engineSource));
+  check('المزج لا يتجاوز نقطة القصّ', /Math\.min\(mixAtAbs, Math\.max\(0, endsAt - crossfadeSec\)\)/.test(engineSource));
+  check('تبادل الأدوار ينقل نهاية القصّ للأغنية الجديدة', /endAtCurrent = endAtNext;/.test(engineSource));
+
+  section('ترتيب الأغاني على الفايب');
+
+  /*
+    العشوائية المحضة تضع هادئة بعد صاخبة فيُقطع جو الصالة. هذا الترتيب
+    يصل الأغاني بالأقرب جهارةً.
+  */
+  const vibeIds = library.list().map((t) => t.id);
+  for (const [i, t] of library.list().entries()) {
+    library.setAnalysis(t.id, {
+      duration: t.duration, loudnessDb: -30 + i * 5, introEndSec: 0, outroStartSec: t.duration - 4, peakSec: 5
+    });
+  }
+  const dbOf = (id) => library.get(id).analysis.loudnessDb;
+  const jumpsOf = (order) => order.slice(1)
+    .reduce((sum, id, i) => sum + Math.abs(dbOf(id) - dbOf(order[i])), 0);
+  const plainShuffle = (list) => {
+    const arr = list.slice();
+    for (let i = arr.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+  };
+
+  const vibe = player.vibeOrder(vibeIds);
+  check('الترتيب يحتفظ بكل الأغاني', vibe.length === vibeIds.length && new Set(vibe).size === vibeIds.length);
+
+  /*
+    الحكم على الترتيب بمتوسط عدة محاولات لا بمحاولة واحدة: فيه عشوائية
+    مقصودة (الخلط داخل الأشرطة والاتجاه)، فاختبار محاولة واحدة يرتجف.
+  */
+  const avgJumps = (make) => {
+    let total = 0;
+    for (let i = 0; i < 30; i += 1) total += jumpsOf(make());
+    return Math.round(total / 30);
+  };
+  const vibeAvg = avgJumps(() => player.vibeOrder(vibeIds));
+  const randomAvg = avgJumps(() => plainShuffle(vibeIds));
+  check('الترتيب أقرب جهارةً من العشوائية بفارق واضح',
+    vibeAvg < randomAvg * 0.8, `فايب ${vibeAvg} مقابل عشوائي ${randomAvg}`);
+
+  // الاتجاه عشوائي: ليلة تصعد وليلة تهدأ، فلا يتكرّر الترتيب نفسه دائمًا
+  const firsts = new Set();
+  for (let i = 0; i < 30; i += 1) firsts.add(player.vibeOrder(vibeIds)[0]);
+  check('الترتيب لا يبدأ بالأغنية نفسها كل مرة', firsts.size > 1, `بدايات: ${firsts.size}`);
+
+  library.setAnalysis(vibeIds[0], null);
+  library.setAnalysis(vibeIds[1], null);
+  const mixedOrder = player.vibeOrder(vibeIds);
+  check('الأغاني غير المحلّلة تُلحق في النهاية',
+    [vibeIds[0], vibeIds[1]].every((id) => mixedOrder.indexOf(id) >= vibeIds.length - 2));
+
+  check('أقل من ثلاث أغانٍ محلّلة ترجع للعشوائية',
+    player.vibeOrder(vibeIds.slice(0, 2)).length === 2);
+
+  await call('/api/player/dj', { method: 'POST', body: { vibeOrder: true } });
+  check('الإعداد يُحفظ', settings.dj.vibeOrder === true && player.dj.vibeOrder === true);
+  player.state.shuffle = true;
+  const sourceCount = playlists.trackIdsOf(player.state.sourceId).length;
+  check('ترتيب التشغيل يستعمل الفايب حين يُفعّل',
+    player.buildOrder().length === sourceCount && sourceCount > 0);
+  await call('/api/player/dj', { method: 'POST', body: { vibeOrder: false } });
+
+  // صفاء الصوت: حمايةٌ من القمم لا ضغطٌ دائم على الموسيقى
+  check('حلقة الحماية حدّاد قمم لا ضاغط عريض',
+    /comp\.threshold\.value = -1\.5/.test(engineSource) && /comp\.ratio\.value = 20/.test(engineSource));
+  check('لا رُكبة عريضة تمسّ الموسيقى العادية', /comp\.knee\.value = 0/.test(engineSource));
+
   section('لوب المقطع');
 
   player.playNow(tracks[0].id);

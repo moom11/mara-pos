@@ -225,7 +225,10 @@ class Library extends EventEmitter {
       // التحليل الصوتي يبقى ما دام الملف نفسه لم يتغيّر — إعادته مكلفة بلا داعٍ
       analysis: existing && existing.size === file.size && existing.mtime === file.mtime
         ? existing.analysis || null
-        : null
+        : null,
+      // القصّ من عمل صاحب المحل لا من حساب البرنامج، فيبقى على كل حال:
+      // إعادة الفحص لا تمحو ما ضبطه بيده
+      trim: existing ? existing.trim || null : null
     };
 
     try {
@@ -256,6 +259,33 @@ class Library extends EventEmitter {
     const t = this.tracks.get(id);
     if (!t) return false;
     t.analysis = data ? { ...data, at: Date.now() } : { failed: true, at: Date.now() };
+    this.persist();
+    return true;
+  }
+
+  /**
+   * يحفظ نقطتي قصّ الأغنية: ما قبل البداية وما بعد النهاية لا يُعزف.
+   * `null` يلغي القصّ ويرجع الأغنية كاملة.
+   * @param {string} id
+   * @param {{start?: number, end?: number|null}|null} trim
+   */
+  setTrim(id, trim) {
+    const t = this.tracks.get(id);
+    if (!t) return false;
+    if (!trim) {
+      t.trim = null;
+      this.persist();
+      return true;
+    }
+    const duration = t.duration || 0;
+    const start = Math.max(0, Math.round((Number(trim.start) || 0) * 10) / 10);
+    const rawEnd = trim.end === null || trim.end === undefined ? null : Number(trim.end);
+    let end = Number.isFinite(rawEnd) ? Math.round(rawEnd * 10) / 10 : null;
+    if (duration && end !== null) end = Math.min(end, duration);
+    // مقطع أقصر من خمس ثوان لا يصلح أغنية، ونهاية قبل بدايتها عبث
+    if (end !== null && end - start < 5) return false;
+    if (duration && start >= duration) return false;
+    t.trim = start === 0 && end === null ? null : { start, end };
     this.persist();
     return true;
   }
