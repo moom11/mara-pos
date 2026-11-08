@@ -19,7 +19,8 @@ const DJ_DEFAULTS = {
   skipIntroSec: 0,
   sweep: true,
   echoOnMix: true,
-  dropBuildSec: 4
+  dropBuildSec: 4,
+  panSec: 4 // زمن دورة التمرير الكاملة: يسار ← يمين ← يسار
 };
 
 /** ما يُحفَظ في الإعدادات — دون الفلتر والصدى اللحظيين. */
@@ -74,7 +75,8 @@ class Player extends EventEmitter {
       ...DJ_DEFAULTS,
       ...(settings.dj || {}),
       filter: 0,
-      echo: false
+      echo: false,
+      pan: false // التمرير لحظي كالصدى: لا يُحفظ فلا يبدأ اليوم والصوت يتنقّل
     };
 
     /*
@@ -597,16 +599,19 @@ class Player extends EventEmitter {
     if (typeof patch.sweep === 'boolean') this.dj.sweep = patch.sweep;
     if (typeof patch.echoOnMix === 'boolean') this.dj.echoOnMix = patch.echoOnMix;
     if (typeof patch.echo === 'boolean') this.dj.echo = patch.echo;
+    if (typeof patch.pan === 'boolean') this.dj.pan = patch.pan;
     if (patch.everyMin !== undefined) this.dj.everyMin = clampRange(patch.everyMin, 0, 30, 0);
     if (patch.mixAtSec !== undefined) this.dj.mixAtSec = clampRange(patch.mixAtSec, 2, 20, 12);
     if (patch.skipIntroSec !== undefined) this.dj.skipIntroSec = clampRange(patch.skipIntroSec, 0, 30, 0);
     if (patch.dropBuildSec !== undefined) this.dj.dropBuildSec = clampRange(patch.dropBuildSec, 1, 12, 4);
     if (patch.filter !== undefined) this.dj.filter = clampRange(patch.filter, -100, 100, 0);
+    if (patch.panSec !== undefined) this.dj.panSec = clampRange(patch.panSec, 1, 12, 4);
 
     // إطفاء المود يُرجع الصوت طبيعيًا فورًا — لا يترك المحل على فلتر مكتوم
     if (before && !this.dj.enabled) {
       this.dj.filter = 0;
       this.dj.echo = false;
+      this.dj.pan = false;
     }
 
     const persisted = { ...(this.settings.dj || {}) };

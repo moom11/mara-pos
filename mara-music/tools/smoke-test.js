@@ -589,6 +589,45 @@ async function main() {
   check('إطفاء المزج الذكي يلغي نقاط التحليل', commands.filter((c) => c.type === 'preload').pop().mixAtSec === 0);
   await call('/api/player/dj', { method: 'POST', body: { smartMix: true } });
 
+  section('التمرير بين الجانبين');
+
+  /*
+    حركة الصوت يمينًا ويسارًا. لحظية كالصدى: لا تُحفظ، فلا يبدأ اليوم
+    والصوت يتنقّل بين جانبي الصالة بلا أن يطلبه أحد.
+  */
+  await call('/api/player/dj', { method: 'POST', body: { enabled: true } });
+  commands.length = 0;
+  await call('/api/player/dj', { method: 'POST', body: { pan: true } });
+  const panCmd = commands.filter((c) => c.type === 'dj').pop();
+  check('تشغيل التمرير يصل للمحرّك', !!panCmd && panCmd.config.pan === true);
+  check('التمرير يظهر في حالة التطبيق', player.publicState().dj.pan === true);
+
+  await call('/api/player/dj', { method: 'POST', body: { panSec: 8 } });
+  check('سرعة التمرير تُضبط', player.dj.panSec === 8);
+  await call('/api/player/dj', { method: 'POST', body: { panSec: 99 } });
+  check('سرعة التمرير محبوسة في حدّ معقول', player.dj.panSec === 12);
+  await call('/api/player/dj', { method: 'POST', body: { panSec: 4 } });
+  check('سرعة التمرير تُحفظ في الإعدادات', settings.dj.panSec === 4);
+
+  // إطفاء المود يُرجع الصوت طبيعيًا: لا فلتر ولا صدى ولا تمرير
+  await call('/api/player/dj', { method: 'POST', body: { pan: true, echo: true, filter: -60 } });
+  await call('/api/player/dj', { method: 'POST', body: { enabled: false } });
+  check('إطفاء المود يوقف التمرير', player.dj.pan === false);
+  check('إطفاء المود يوقف الصدى والفلتر', player.dj.echo === false && player.dj.filter === 0);
+
+  // التمرير لحظي: لا يُحفظ في الإعدادات
+  check('التمرير لا يُحفظ في الإعدادات', settings.dj.pan === undefined);
+
+  check('المحرّك يبني ممرّر الجانبين', /createStereoPanner\(\)/.test(engineSource));
+  check('الممرّر بعد مصفوفة التوازن فلا يُلغيها', /merger\.connect\(panner\)/.test(engineSource));
+  check('المخرج النهائي من الممرّر', /panner\.connect\(ctx\.destination\)/.test(engineSource));
+  check('التمرير بمذبذب لا بمؤقّت', /createOscillator\(\)/.test(engineSource));
+  // التمرير الكامل يُسكت جانبًا من الصالة في نصف الدورة
+  check('التمرير لا يبلغ أقصى الجانبين', /panDepth: 0\.85/.test(engineSource));
+  check('إطفاء المؤثرات يوقف التمرير', /dj\.pan = false;\s*\n\s*applyPan/.test(engineSource));
+  // المذبذب لا يُعاد تشغيله بعد إيقافه، فلا بدّ من إنشائه عند كل تشغيل
+  check('المذبذب يُوقف ويُنشأ من جديد', /function stopPanLfo/.test(engineSource) && /panLfo = ctx\.createOscillator/.test(engineSource));
+
   section('قصّ الأغنية');
 
   /*
@@ -1211,8 +1250,10 @@ async function main() {
   // engineSource مقروء أعلاه في قسم البث المباشر
   check('المحرّك يبني مصفوفة الجانبين', /createChannelSplitter\(2\)/.test(engineSource) && /createChannelMerger\(2\)/.test(engineSource));
   check('المصفوفة بعد الضاغط لا قبله', /comp\.connect\(splitter\)/.test(engineSource));
-  check('المخرج النهائي من المدمج لا من الضاغط',
-    /merger\.connect\(ctx\.destination\)/.test(engineSource) && !/comp\.connect\(ctx\.destination\)/.test(engineSource));
+  // السلسلة: ضاغط ← مفرّق ← مصفوفة ← مدمج ← ممرّر ← السماعات
+  check('المخرج النهائي ليس من الضاغط مباشرة', !/comp\.connect\(ctx\.destination\)/.test(engineSource));
+  check('المدمج يصل إلى ما بعده لا إلى السماعات مباشرة',
+    /merger\.connect\(panner\)/.test(engineSource) && !/merger\.connect\(ctx\.destination\)/.test(engineSource));
   check('المونو يقسم على 2 تجنّبًا لقص القمم', /left \* 0\.5/.test(engineSource) && /right \* 0\.5/.test(engineSource));
   check('المحرّك ينفّذ أمر التوازن', /case 'balance':/.test(engineSource));
   // الوضع المحايد يجب ألا يبني الرسم الصوتي: بناؤه يمسك عناصر الصوت بلا داعٍ

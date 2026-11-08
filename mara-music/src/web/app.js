@@ -474,6 +474,8 @@ function renderDj() {
   $('dj-state').textContent = dj.enabled ? 'يعمل' : 'مطفأ';
   $('dj-panel').hidden = !dj.enabled;
   $('dj-echo').classList.toggle('on', !!dj.echo);
+  $('dj-pan').classList.toggle('on', !!dj.pan);
+  $('dj-pan').textContent = dj.pan ? `تمرير (${dj.panSec || 4}ث)` : 'تمرير يمين ويسار';
   $('dj-automix').classList.toggle('on', !!dj.autoMix);
 
   // زر اللوب يعكس المرحلة التي نحن فيها، فلا يحتاج المستخدم تذكّرها
@@ -1622,6 +1624,33 @@ function wireEvents() {
   $('dj-next').onclick = () => cmd('dj-next').catch((e) => toast(e.message));
   $('dj-drop').onclick = () => cmd('dj-drop').catch((e) => toast(e.message));
   $('dj-echo').onclick = () => dj({ echo: !(app.state && app.state.dj && app.state.dj.echo) });
+  /*
+    ضغطة تشغّل التمرير وتطفئه، وضغطة مطوّلة تغيّر سرعته بين 2 و 4 و 8
+    ثوان: زرّ واحد يكفي في زحمة الخدمة، ولا يحتاج شريطًا آخر في الشاشة.
+  */
+  let panHoldTimer = null;
+  let panHandledByHold = false;
+  $('dj-pan').onclick = () => {
+    // الضغطة المطوّلة تكفّلت بالأمر، فلا نطفئ ما شغّلته للتوّ
+    if (panHandledByHold) { panHandledByHold = false; return; }
+    dj({ pan: !(app.state && app.state.dj && app.state.dj.pan) });
+  };
+  $('dj-pan').addEventListener('pointerdown', () => {
+    panHandledByHold = false;
+    panHoldTimer = setTimeout(() => {
+      panHoldTimer = null;
+      panHandledByHold = true;
+      const now = (app.state && app.state.dj && app.state.dj.panSec) || 4;
+      const next = now <= 2 ? 4 : (now <= 4 ? 8 : 2);
+      dj({ panSec: next, pan: true });
+      toast(`سرعة التمرير: دورة كل ${next} ثوان`);
+    }, 600);
+  });
+  for (const event of ['pointerup', 'pointercancel', 'pointerleave']) {
+    $('dj-pan').addEventListener(event, () => {
+      if (panHoldTimer) { clearTimeout(panHoldTimer); panHoldTimer = null; }
+    });
+  }
   $('dj-automix').onclick = () => dj({ autoMix: !(app.state && app.state.dj && app.state.dj.autoMix) });
   $('dj-loop').onclick = () => cmd('loop-mark').catch((e) => toast(e.message));
   $('fx-stop-all').onclick = () => cmd('fx-stop-all').catch((e) => toast(e.message));
@@ -1632,7 +1661,7 @@ function wireEvents() {
   $('dj-reset').onclick = () => {
     $('dj-filter').value = 0;
     $('dj-filter-value').textContent = filterLabel(0);
-    dj({ filter: 0, echo: false });
+    dj({ filter: 0, echo: false, pan: false });
   };
 
   const sendFilter = throttle((value) => dj({ filter: value }), 150);

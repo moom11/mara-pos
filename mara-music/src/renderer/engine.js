@@ -63,7 +63,9 @@
     echoOnMix: true,
     dropBuildSec: 4,
     filter: 0, // -100 (مكتوم/غائر) .. 0 (طبيعي) .. +100 (رفيع/مشدود)
-    echo: false
+    echo: false,
+    pan: false, // تمرير الصوت بين الجانبين
+    panSec: 4 // زمن الدورة الكاملة: يسار ← يمين ← يسار
   };
 
   // حدود المؤثرات — مضبوطة لمقهى، لا لحفلة: لا تشويه ولا إجهاد للسماعات
@@ -73,7 +75,12 @@
     echoWet: 0.3,
     echoTail: 0.4,
     dropHp: 2400,
-    sweepTo: 1500
+    sweepTo: 1500,
+    /*
+      لا نمرّر إلى أقصى الجانبين: التمرير الكامل يُسكت جانبًا من الصالة
+      تمامًا في نصف الدورة. 0.85 حركة واضحة تُسمع ولا تُفقد أحدًا الموسيقى.
+    */
+    panDepth: 0.85
   };
 
   let ctx = null;
@@ -210,11 +217,19 @@
       gRL.connect(merger, 0, 0);
       gLR.connect(merger, 0, 1);
       gRR.connect(merger, 0, 1);
-      merger.connect(ctx.destination);
+
+      /*
+        التمرير بين الجانبين (أوتو بان) آخر حلقة قبل السماعات: يحرّك
+        الصوت وحده يمينًا ويسارًا. موضعه بعد مصفوفة التوازن فيبقى
+        التوازن محفوظًا: الحركة تُضاف إلى معايرة القاعة لا تُلغيها.
+      */
+      const panner = ctx.createStereoPanner();
+      merger.connect(panner);
+      panner.connect(ctx.destination);
 
       nodes = {
         busIn, hp, lp, delay, feedback, wet, musicGain, fxGain, master, comp,
-        splitter, merger, gLL, gLR, gRL, gRR,
+        splitter, merger, gLL, gLR, gRL, gRR, panner,
         per: new Map()
       };
       applyBalance(0);
@@ -267,6 +282,9 @@
     }
   }
 
+  // موضع التمرير ليس جهارة، لكن الترقيق نفسه لازم: أي تغيير فوري يُسمع نقرة
+  const rampParam = rampGain;
+
   const hpForFilter = (f) => (f > 2 ? 20 * Math.pow(FX.hpMax / 20, f / 100) : 20);
   const lpForFilter = (f) => (f < -2 ? 20000 * Math.pow(FX.lpMin / 20000, Math.abs(f) / 100) : 20000);
 
@@ -281,6 +299,63 @@
     const n = ensureGraph();
     if (!n) return;
     rampGain(n.wet.gain, dj.echo ? FX.echoWet : 0, ms / 1000);
+  }
+
+  /*
+    التمرير بين الجانبين: مذبذب جيبي يحرّك موضع الصوت.
+
+    المذبذب يُنشأ عند التشغيل ويُوقف عند الإطفاء، لأن المذبذب في الويب
+    أوديو لا يُعاد تشغيله بعد الإيقاف. ونُخفض العمق تدريجيًا قبل إيقافه
+    حتى لا يقفز الصوت إلى الوسط قفزة مسموعة.
+  */
+  let panLfo = null;
+  let panDepthNode = null;
+
+  function stopPanLfo(afterMs) {
+    const lfo = panLfo;
+    const depth = panDepthNode;
+    panLfo = null;
+    panDepthNode = null;
+    if (!lfo) return;
+    setTimeout(() => {
+      try { lfo.stop(); } catch (_) { /* تجاهل */ }
+      try { lfo.disconnect(); } catch (_) { /* تجاهل */ }
+      try { depth.disconnect(); } catch (_) { /* تجاهل */ }
+    }, afterMs);
+  }
+
+  function applyPan(ms = 400) {
+    // الإطفاء لا يستحق بناء الرسم الصوتي: لا شيء يُطفأ أصلًا
+    if (!dj.pan && !nodes) return;
+    const n = ensureGraph();
+    if (!n) return;
+    const seconds = Math.max(1, Math.min(12, Number(dj.panSec) || 4));
+
+    if (!dj.pan) {
+      if (panDepthNode) rampGain(panDepthNode.gain, 0, ms / 1000);
+      rampParam(n.panner.pan, 0, ms / 1000);
+      stopPanLfo(ms + 60);
+      return;
+    }
+
+    if (!panLfo) {
+      try {
+        panLfo = ctx.createOscillator();
+        panLfo.type = 'sine';
+        panDepthNode = ctx.createGain();
+        panDepthNode.gain.value = 0;
+        panLfo.connect(panDepthNode);
+        panDepthNode.connect(n.panner.pan);
+        panLfo.start();
+      } catch (err) {
+        console.warn('[dj] تعذّر تجهيز التمرير:', err.message);
+        panLfo = null;
+        panDepthNode = null;
+        return;
+      }
+    }
+    panLfo.frequency.value = 1 / seconds;
+    rampGain(panDepthNode.gain, FX.panDepth, ms / 1000);
   }
 
   /** ذيل صدى قصير عند الانتقال — يملأ الفراغ بين الأغنيتين. */
@@ -319,6 +394,8 @@
     rampFreq(nodes.hp.frequency, 20, 0.3);
     rampFreq(nodes.lp.frequency, 20000, 0.3);
     rampGain(nodes.wet.gain, 0, 0.3);
+    dj.pan = false;
+    applyPan(300);
     resetSweep(A);
     resetSweep(B);
   }
@@ -953,6 +1030,7 @@
             if (!wasEnabled) ensureGraph();
             applyFilter(command.fadeMs ?? 200);
             applyEcho(command.fadeMs ?? 300);
+            applyPan(command.fadeMs ?? 400);
           }
           break;
         }
