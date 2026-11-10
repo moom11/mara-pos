@@ -1332,6 +1332,17 @@ async function main() {
   check('زرّ التشغيل أكبر من بقية أزرار التحكّم',
     /\.tbtn \{[\s\S]*?width: 44px/.test(webCss) && /\.tbtn\.play \{[\s\S]*?width: 74px/.test(webCss));
 
+  /*
+    أيقونات التحكّم رسومًا لا إيموجي: على جهاز صاحب المحل ظهر رمز
+    العشوائي مربّعًا أبيض فارغًا لأن خطّ الجهاز لا يحمله.
+  */
+  check('أيقونات التحكّم رسوم لا رموز خطّية', /const ICONS = \{/.test(webApp) && /<svg viewBox/.test(webApp));
+  check('لا إيموجي في أزرار التحكّم بالصفحة',
+    !/id="btn-(shuffle|repeat|play|prev|next)"[^>]*>[^<]*[\u{1F300}-\u{1FAFF}]/u.test(webHtml));
+  check('كل حالات الأيقونات معرّفة',
+    ['play', 'pause', 'prev', 'next', 'shuffle', 'repeat', 'repeatOne', 'volHigh', 'volLow', 'volOff', 'mute']
+      .every((name) => new RegExp(`\\b${name}:\\s*'<svg`).test(webApp)));
+
   const manifest = await fetch(`${base}/manifest.webmanifest`);
   check('ملف PWA موجود', manifest.status === 200);
   const icon = await fetch(`${base}/icons/icon-192.png`);

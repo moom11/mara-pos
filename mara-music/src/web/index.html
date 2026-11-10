@@ -87,15 +87,15 @@
       </div>
 
       <div class="transport">
-        <button class="tbtn" id="btn-shuffle" title="عشوائي">🔀</button>
-        <button class="tbtn big" id="btn-prev">⏮</button>
-        <button class="tbtn play" id="btn-play">▶</button>
-        <button class="tbtn big" id="btn-next">⏭</button>
-        <button class="tbtn" id="btn-repeat" title="تكرار">🔁</button>
+        <button class="tbtn" id="btn-shuffle" title="عشوائي" aria-label="عشوائي"></button>
+        <button class="tbtn big" id="btn-prev" aria-label="السابقة"></button>
+        <button class="tbtn play" id="btn-play" aria-label="تشغيل"></button>
+        <button class="tbtn big" id="btn-next" aria-label="التالية"></button>
+        <button class="tbtn" id="btn-repeat" title="تكرار" aria-label="تكرار"></button>
       </div>
 
       <div class="volume">
-        <span class="vol-icon" id="btn-mute">🔊</span>
+        <span class="vol-icon" id="btn-mute" role="button" aria-label="كتم"></span>
         <input type="range" id="volume" min="0" max="100" value="60" />
         <span class="vol-value" id="volume-value">60%</span>
       </div>
@@ -235,8 +235,8 @@
           <span class="mini-sub" id="mini-sub"></span>
         </span>
       </button>
-      <button class="mini-btn" id="mini-play">▶</button>
-      <button class="mini-btn" id="mini-next">⏭</button>
+      <button class="mini-btn" id="mini-play" aria-label="تشغيل"></button>
+      <button class="mini-btn" id="mini-next" aria-label="التالية"></button>
     </div>
 
     <!-- مدخل رفع الأغاني إلى قائمة بعينها -->

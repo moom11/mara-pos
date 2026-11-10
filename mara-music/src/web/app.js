@@ -45,6 +45,40 @@ window.addEventListener('unhandledrejection', (e) => {
   showFatal((e.reason && e.reason.message) || String(e.reason || 'خطأ غير معروف'));
 });
 
+/*
+  أيقونات التحكّم رسومًا لا رموزًا نصّية.
+
+  كانت رموز إيموجي، وهي تعتمد على خطّ الجهاز: على جهاز صاحب المحل ظهر
+  رمز العشوائي مربّعًا أبيض فارغًا لأن الخط لا يحمله. الرسم يصل كما هو
+  إلى كل جهاز، ويأخذ لون الزرّ نفسه.
+*/
+const ICONS = {
+  play: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.14v13.72a1 1 0 0 0 1.54.84l10.3-6.86a1 1 0 0 0 0-1.68L9.54 4.3A1 1 0 0 0 8 5.14Z"/></svg>',
+  pause: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="4.5" width="4.2" height="15" rx="1.4"/><rect x="13.8" y="4.5" width="4.2" height="15" rx="1.4"/></svg>',
+  /*
+    الرسمان معكوسان عن المعتاد عمدًا: الواجهة عربية، وشريط التشغيل عندنا
+    يمتلئ من اليمين إلى اليسار. فالتقدّم في الزمن يسارًا، ويجب أن يشير
+    زرّ "التالية" إلى حيث يسير الزمن لا إلى عكسه.
+  */
+  prev: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18 5.5a1 1 0 0 0-2 0v4.9L7.54 4.76A1 1 0 0 0 6 5.6v12.8a1 1 0 0 0 1.54.84L16 13.6v4.9a1 1 0 0 0 2 0Z"/></svg>',
+  next: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 5.5a1 1 0 0 1 2 0v4.9l8.46-5.64A1 1 0 0 1 18 5.6v12.8a1 1 0 0 1-1.54.84L8 13.6v4.9a1 1 0 0 1-2 0Z"/></svg>',
+  shuffle: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7h3.2c1.2 0 2.3.6 3 1.6l5.6 7.8c.7 1 1.8 1.6 3 1.6H21"/><path d="M3 17h3.2c1.2 0 2.3-.6 3-1.6l.9-1.2"/><path d="M14.3 8.8l.5-.7c.7-1 1.8-1.6 3-1.6H21"/><path d="m18.2 3.6 2.8 2.9-2.8 2.9"/><path d="m18.2 14.6 2.8 2.9-2.8 2.9"/></svg>',
+  repeat: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 2.5 20.5 6 17 9.5"/><path d="M3.5 12.5v-2a4.5 4.5 0 0 1 4.5-4.5h12.5"/><path d="M7 21.5 3.5 18 7 14.5"/><path d="M20.5 11.5v2a4.5 4.5 0 0 1-4.5 4.5H3.5"/></svg>',
+  repeatOne: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 2.5 20.5 6 17 9.5"/><path d="M3.5 12.5v-2a4.5 4.5 0 0 1 4.5-4.5h12.5"/><path d="M7 21.5 3.5 18 7 14.5"/><path d="M20.5 11.5v2a4.5 4.5 0 0 1-4.5 4.5H3.5"/><path d="M11.4 10.6l1.3-.9v5" stroke-width="2.1"/></svg>',
+  volHigh: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 4.8 6.6 8.5H3.5v7h3.1L11 19.2Z" fill="currentColor" stroke="none"/><path d="M14.8 9.2a4 4 0 0 1 0 5.6"/><path d="M17.6 6.4a8 8 0 0 1 0 11.2"/></svg>',
+  volLow: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 4.8 6.6 8.5H3.5v7h3.1L11 19.2Z" fill="currentColor" stroke="none"/><path d="M14.8 9.2a4 4 0 0 1 0 5.6"/></svg>',
+  volOff: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 4.8 6.6 8.5H3.5v7h3.1L11 19.2Z" fill="currentColor" stroke="none"/></svg>',
+  mute: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 4.8 6.6 8.5H3.5v7h3.1L11 19.2Z" fill="currentColor" stroke="none"/><path d="m15 9.5 5 5m0-5-5 5"/></svg>'
+};
+
+const setIcon = (id, name) => {
+  const node = $(id);
+  if (node && node.dataset.icon !== name) {
+    node.dataset.icon = name;
+    node.innerHTML = ICONS[name] || '';
+  }
+};
+
 const store = {
   get token() { return localStorage.getItem('mara.token'); },
   set token(v) { v ? localStorage.setItem('mara.token', v) : localStorage.removeItem('mara.token'); },
@@ -363,9 +397,9 @@ function applyTick(tick) {
   if (!app.dragging) app.localPosition = tick.position;
 
   if (statusChanged) {
-    const glyph = tick.status === 'playing' ? '❚❚' : '▶';
-    $('btn-play').textContent = glyph;
-    $('mini-play').textContent = glyph;
+    const glyph = tick.status === 'playing' ? 'pause' : 'play';
+    setIcon('btn-play', glyph);
+    setIcon('mini-play', glyph);
   }
   paintProgress();
 }
@@ -396,7 +430,7 @@ function renderMiniBar() {
   if (!hasTrack) return;
   $('mini-title').textContent = s.track.title || 'بدون عنوان';
   $('mini-sub').textContent = s.track.artist || (s.source ? s.source.name : '');
-  $('mini-play').textContent = s.status === 'playing' ? '❚❚' : '▶';
+  setIcon('mini-play', s.status === 'playing' ? 'pause' : 'play');
   const thumb = $('mini-thumb');
   if (s.track.cover) {
     if (thumb.dataset.cover !== s.track.cover) {
@@ -446,10 +480,10 @@ function renderNow() {
     backdrop.classList.remove('on');
   }
 
-  $('btn-play').textContent = s.status === 'playing' ? '❚❚' : '▶';
+  setIcon('btn-play', s.status === 'playing' ? 'pause' : 'play');
   $('btn-shuffle').classList.toggle('on', !!s.shuffle);
   $('btn-repeat').classList.toggle('on', s.repeat !== 'off');
-  $('btn-repeat').textContent = s.repeat === 'one' ? '🔂' : '🔁';
+  setIcon('btn-repeat', s.repeat === 'one' ? 'repeatOne' : 'repeat');
 
   const isLive = !!(track && track.live);
   $('seek-block').hidden = isLive;
@@ -460,7 +494,7 @@ function renderNow() {
   if (document.activeElement !== $('volume')) $('volume').value = volPct;
   setFill('volume', volPct);
   $('volume-value').textContent = `${volPct}%`;
-  $('btn-mute').textContent = s.muted ? '🔇' : volPct === 0 ? '🔈' : volPct < 50 ? '🔉' : '🔊';
+  setIcon('btn-mute', s.muted ? 'mute' : volPct === 0 ? 'volOff' : volPct < 50 ? 'volLow' : 'volHigh');
 
   // بانر الإيقاف التلقائي
   const banner = $('auto-banner');
@@ -1825,7 +1859,20 @@ function wireEvents() {
 
 // ================================================================ البداية
 
+/** الأيقونات الثابتة تُرسم مرة واحدة عند الإقلاع. */
+function paintStaticIcons() {
+  setIcon('btn-shuffle', 'shuffle');
+  setIcon('btn-repeat', 'repeat');
+  setIcon('btn-prev', 'prev');
+  setIcon('btn-next', 'next');
+  setIcon('btn-play', 'play');
+  setIcon('btn-mute', 'volHigh');
+  setIcon('mini-play', 'play');
+  setIcon('mini-next', 'next');
+}
+
 setupKeypad();
+paintStaticIcons();
 wireEvents();
 
 if (store.token) {

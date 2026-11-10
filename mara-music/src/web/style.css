@@ -795,19 +795,27 @@ input.switch:checked::after { transform: translateX(-19px); }
   البرتقالي كان أظهر من زرّ التشغيل نفسه. فنحيّدها لتصير أيقونات رمادية،
   ويبقى اللون علامةَ حالة لا زينة.
 */
+/*
+  ما بقي من رموز الإيموجي (شريط التبويبات والديجي) يُحيَّد لونه ليتناغم
+  مع الواجهة. أمّا أزرار التحكّم فصارت رسومًا تأخذ لون الزرّ نفسه.
+*/
 .tabs button span,
-.tbtn,
-.vol-icon,
 .dj-label,
 .icon-btn {
   filter: grayscale(1) brightness(1.65);
 }
-.tabs button.active span,
-.tbtn.play {
-  filter: none;
+.tabs button.active span { filter: none; }
+
+/* الرسوم ترث لون الزرّ، فتكفي قاعدة واحدة لكل الحالات */
+.tbtn svg, .mini-btn svg, .vol-icon svg {
+  width: 56%;
+  height: 56%;
+  display: block;
 }
-/* الحالة المفعّلة تستعيد لونها الذهبي لا البرتقالي الأصلي */
-.tbtn.on { filter: grayscale(1) brightness(1.1) sepia(1) saturate(2.2) hue-rotate(5deg); }
+.tbtn.play svg { width: 42%; height: 42%; }
+.tbtn.big svg { width: 50%; height: 50%; }
+.vol-icon svg { width: 22px; height: 22px; }
+.vol-icon { display: grid; place-items: center; }
 
 /* مؤشّر التبويب العامل: حبّة خلف الأيقونة تُعرف بلمحة */
 .tabs button { position: relative; }
