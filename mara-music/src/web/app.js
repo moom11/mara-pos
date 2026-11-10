@@ -950,9 +950,9 @@ const UPLOAD_BATCH = 20;
  * الرفع على دفعات مع نسبة تقدّم حقيقية.
  * الدفعات تمنع سقوط رفعة كبيرة كاملة بسبب انقطاع لحظي في شبكة المحل.
  */
-async function uploadFiles(files) {
+async function uploadFiles(files, { playlistId = null, boxId = 'upload-progress' } = {}) {
   if (!files.length) return;
-  const box = $('upload-progress');
+  const box = $(boxId);
   box.hidden = false;
 
   const batches = [];
@@ -960,6 +960,7 @@ async function uploadFiles(files) {
 
   let uploaded = 0;
   let added = 0;
+  let inList = 0;
   try {
     for (let b = 0; b < batches.length; b += 1) {
       const batch = batches[b];
@@ -967,15 +968,24 @@ async function uploadFiles(files) {
       const data = await uploadBatch(batch, (ratio) => {
         const total = done + batch.length * ratio;
         box.textContent = `جارٍ الرفع… ${Math.round((total / files.length) * 100)}% (${Math.round(total)} من ${files.length})`;
-      });
+      }, playlistId);
       uploaded += data.uploaded;
       added += data.added.length;
+      if (data.playlist) inList += data.playlist.added;
     }
-    box.textContent = added
-      ? `تم رفع ${uploaded} ملف — أُضيفت ${added} أغنية للمكتبة`
-      : `تم رفع ${uploaded} ملف — لا جديد (موجودة مسبقًا)`;
+    if (playlistId) {
+      box.textContent = `تم رفع ${uploaded} ملف — أُضيفت ${inList} أغنية إلى القائمة`;
+    } else {
+      box.textContent = added
+        ? `تم رفع ${uploaded} ملف — أُضيفت ${added} أغنية للمكتبة`
+        : `تم رفع ${uploaded} ملف — لا جديد (موجودة مسبقًا)`;
+    }
     setTimeout(() => { box.hidden = true; }, 5000);
     loadLibrary(true);
+    if (playlistId) {
+      await loadPlaylists();
+      if (app.currentPlaylist && app.currentPlaylist.id === playlistId) openPlaylist(playlistId);
+    }
   } catch (err) {
     box.textContent = `تعذّر الرفع: ${err.message}${uploaded ? ` — نجح ${uploaded} ملف قبل التوقّف` : ''}`;
   }
@@ -1002,10 +1012,11 @@ async function uploadFx(files) {
   }
 }
 
-function uploadBatch(batch, onProgress) {
+function uploadBatch(batch, onProgress, playlistId) {
   return new Promise((resolve, reject) => {
     const form = new FormData();
     for (const file of batch) form.append('files', file);
+    if (playlistId) form.append('playlistId', playlistId);
     const xhr = new XMLHttpRequest();
     xhr.open('POST', '/api/upload');
     xhr.setRequestHeader('Authorization', `Bearer ${store.token}`);
@@ -1736,6 +1747,25 @@ function wireEvents() {
     if (app.role !== 'admin') return toast('للمدير فقط');
     addStream();
   };
+  /*
+    الرفع إلى القائمة المفتوحة: المرفوع يدخل المكتبة والقائمة في خطوة
+    واحدة، بدل رفعه ثم البحث عنه في المكتبة وإضافته واحدًا واحدًا.
+  */
+  $('btn-upload-playlist').onclick = () => {
+    if (app.role !== 'admin') return toast('للمدير فقط');
+    if (!app.currentPlaylist) return;
+    $('playlist-file-input').click();
+  };
+  $('playlist-file-input').addEventListener('change', (e) => {
+    const files = [...e.target.files];
+    e.target.value = '';
+    if (app.currentPlaylist) {
+      uploadFiles(files, {
+        playlistId: app.currentPlaylist.id,
+        boxId: 'playlist-upload-progress'
+      });
+    }
+  });
   $('btn-back-playlists').onclick = closePlaylist;
   $('btn-delete-playlist').onclick = async () => {
     if (!app.currentPlaylist || !confirm(`حذف قائمة "${app.currentPlaylist.name}"؟`)) return;

@@ -354,6 +354,68 @@ async function main() {
   });
   check('منع الموظف من الرفع', staffUpload.status === 403);
 
+  /*
+    الرفع إلى قائمة بعينها: رفع ثلاثين أغنية ثم إضافتها واحدة واحدة من
+    المكتبة عمل طويل بلا سبب، فالخطوتان صارتا واحدة.
+  */
+  const uploadList = playlists.create('قائمة الرفع المباشر');
+  const uploadTo = async (filename, bytes = sample) => {
+    const f = new FormData();
+    f.append('files', new Blob([bytes], { type: 'audio/mpeg' }), filename);
+    f.append('playlistId', uploadList.id);
+    const r = await fetch(`${base}/api/upload`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: f
+    });
+    return { status: r.status, data: await r.json() };
+  };
+
+  const intoList = await uploadTo('أغنية إلى القائمة.mp3');
+  check('الرفع إلى قائمة ينجح', intoList.status === 200);
+  check('المرفوع يدخل القائمة في الخطوة نفسها',
+    intoList.data.playlist && intoList.data.playlist.added === 1
+    && playlists.get(uploadList.id).trackIds.length === 1, JSON.stringify(intoList.data.playlist));
+  check('الرد يسمّي القائمة لتُطمئن من رفع', intoList.data.playlist.name === 'قائمة الرفع المباشر');
+
+  /*
+    رفع ملف باسم موجود: المثبّت لا يكتب فوق ملف المحل أبدًا، بل يحفظه
+    باسم جديد. فالنتيجة أغنية أخرى تدخل القائمة أيضًا — وهذا المطلوب:
+    من يرفع وهو في قائمة يريد ما رفعه فيها.
+  */
+  const again = await uploadTo('أغنية إلى القائمة.mp3');
+  check('إعادة الرفع لا تكتب فوق الملف الأول', again.data.added.length === 1);
+  check('المرفوع الثاني يدخل القائمة أيضًا',
+    playlists.get(uploadList.id).trackIds.length === 2);
+
+  const badList = await (async () => {
+    const f = new FormData();
+    f.append('files', new Blob([sample], { type: 'audio/mpeg' }), 'y.mp3');
+    f.append('playlistId', 'قائمة-غير-موجودة');
+    const r = await fetch(`${base}/api/upload`, {
+      method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: f
+    });
+    return { status: r.status, data: await r.json() };
+  })();
+  check('الرفع إلى قائمة غير موجودة يُرفض', badList.status === 404);
+
+  const builtinList = await (async () => {
+    const f = new FormData();
+    f.append('files', new Blob([sample], { type: 'audio/mpeg' }), 'z.mp3');
+    f.append('playlistId', ALL_TRACKS_ID);
+    const r = await fetch(`${base}/api/upload`, {
+      method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: f
+    });
+    return r.status;
+  })();
+  check('الرفع إلى "كل الأغاني" يُرفض — ليست قائمة تُحرَّر', builtinList === 404);
+
+  playlists.remove(uploadList.id);
+  // تنظيف: نرجع المكتبة كما كانت، فاختبارات لاحقة تعتمد على عددها
+  for (const t of [...intoList.data.added, ...again.data.added]) await library.deleteTrack(t.id);
+  check('الرفض لا يترك ملفات في مجلد الأغاني',
+    !fs.readdirSync(path.join(MUSIC_DIR, 'Uploads')).some((f) => f === 'y.mp3' || f === 'z.mp3'));
+
   // ==================================================== 6ج) البثّ اللحظي
 
   section('التحديث اللحظي (WebSocket)');

@@ -529,6 +529,13 @@ input[type=range]::-moz-range-thumb { width: 20px; height: 20px; border: none; b
 }
 .search-row input { flex: 1; min-width: 0; }
 
+/* زرّ ثانوي داخل القائمة: حاضر ولا يزاحم زرّ التشغيل */
+.wide-btn.ghost {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--line);
+}
+
 .upload-progress {
   background: var(--panel);
   border: 1px solid var(--accent);

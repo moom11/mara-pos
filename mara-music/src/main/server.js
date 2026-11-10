@@ -456,17 +456,54 @@ function createServer(ctx) {
     }
   });
 
+  /*
+    الرفع. مع playlistId تُضاف المرفوعات إلى تلك القائمة في الخطوة نفسها:
+    رفع ثلاثين أغنية ثم إضافتها واحدة واحدة من المكتبة عمل طويل بلا سبب.
+
+    الملف الموجود مسبقًا في المكتبة لا يُعدّ "جديدًا"، ومع ذلك يُضاف
+    للقائمة: من يرفعه وهو في قائمة يريده فيها، لا يريد صمتًا.
+  */
   app.post('/api/upload', requireAdmin, upload.array('files', 60), async (req, res) => {
     const files = req.files || [];
     if (!files.length) return res.status(400).json({ error: 'لم يتم رفع أي ملف صوتي صالح' });
+
+    const playlistId = String(req.body?.playlistId || '').trim();
+    const playlist = playlistId ? playlists.get(playlistId) : null;
+    if (playlistId && (!playlist || playlist.builtin)) {
+      /*
+        الملفات وصلت القرص قبل أن نفحص القائمة (هكذا يعمل الاستقبال)،
+        فنحذفها عند الرفض: رفعة فاشلة لا يجوز أن تترك ملفات في مجلد
+        أغاني المحل تظهر فجأة عند الفحص القادم.
+      */
+      for (const file of files) {
+        try { fs.unlinkSync(file.path); } catch (_) { /* تجاهل */ }
+      }
+      return res.status(404).json({ error: 'القائمة غير موجودة' });
+    }
+
     const before = new Set(library.tracks.keys());
+    const uploadedNames = new Set(files.map((f) => path.basename(f.path)));
     await library.scan({ full: false });
     const added = library.list().filter((t) => !before.has(t.id));
+
+    let inPlaylist = 0;
+    if (playlist) {
+      // المرفوع الآن: الجديد، ومن كان موجودًا بالاسم نفسه فقد أراده المستخدم هنا
+      const ids = library.list()
+        .filter((t) => !before.has(t.id) || uploadedNames.has(path.basename(t.path || '')))
+        .map((t) => t.id);
+      const sizeBefore = playlist.trackIds.length;
+      playlists.addTracks(playlist.id, ids);
+      inPlaylist = playlists.get(playlist.id).trackIds.length - sizeBefore;
+      broadcast({ type: 'playlists' });
+    }
+
     broadcast({ type: 'library' });
     res.json({
       ok: true,
       uploaded: files.length,
-      added: added.map((t) => ({ id: t.id, title: t.title, artist: t.artist, duration: t.duration }))
+      added: added.map((t) => ({ id: t.id, title: t.title, artist: t.artist, duration: t.duration })),
+      playlist: playlist ? { id: playlist.id, name: playlist.name, added: inPlaylist } : null
     });
   });
 

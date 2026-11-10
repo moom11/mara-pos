@@ -210,6 +210,9 @@
           <button class="link danger" id="btn-delete-playlist">حذف</button>
         </header>
         <button class="wide-btn" id="btn-play-playlist">تشغيل هذه القائمة</button>
+        <!-- الرفع من داخل القائمة: يضيفها للمكتبة وللقائمة في خطوة واحدة -->
+        <button class="wide-btn ghost admin-only" id="btn-upload-playlist">رفع أغانٍ إلى هذه القائمة</button>
+        <div class="upload-progress" id="playlist-upload-progress" hidden></div>
         <ul class="track-list" id="playlist-tracks"></ul>
       </div>
     </section>
@@ -233,6 +236,9 @@
       <button class="mini-btn" id="mini-play">▶</button>
       <button class="mini-btn" id="mini-next">⏭</button>
     </div>
+
+    <!-- مدخل رفع الأغاني إلى قائمة بعينها -->
+    <input type="file" id="playlist-file-input" accept="audio/*,.mp3,.m4a,.flac,.wav,.ogg" multiple hidden />
 
     <!-- مدخل رفع المؤثرات — يُستدعى من شاشة الإعدادات -->
     <input type="file" id="fx-input" accept="audio/*,.wav,.mp3,.m4a,.ogg" multiple hidden />
