@@ -1343,6 +1343,22 @@ async function main() {
     ['play', 'pause', 'prev', 'next', 'shuffle', 'repeat', 'repeatOne', 'volHigh', 'volLow', 'volOff', 'mute']
       .every((name) => new RegExp(`\\b${name}:\\s*'<svg`).test(webApp)));
 
+  /*
+    شريط أوقات الصلاة يستعمل اسم الصنف chip نفسه الذي يستعمله صف
+    الترتيب. قاعدة غير مقصورة على صف الترتيب وسّعت خانات الصلاة فخرجت
+    عن الشاشة. فنحرس القصر صراحةً.
+  */
+  check('تنسيق أزرار الترتيب مقصور على صفّها', /\.chips > \.chip \{/.test(webCss));
+  // لشريط الصلاة قاعدة chip خاصة به سبقتنا؛ فالممنوع أن نضيف نحن قاعدة
+  // عامة تطغى عليها، لا أن توجد قاعدته هو
+  check('لا حالة chip عامة تطغى على شريط الصلاة', !/^\.chip\.on\b/m.test(webCss));
+  check('أزرار الترتيب موجودة في الصفحة', webHtml.includes('id="sort-chips"'));
+  check('زرّ التشغيل العشوائي في المكتبة وفي القائمة',
+    webHtml.includes('id="btn-shuffle-all"') && webHtml.includes('id="btn-shuffle-playlist"'));
+  // التشغيل العشوائي يشغّل الخلط ثم يبدأ المصدر، لا يبدأ المصدر وحده
+  check('التشغيل العشوائي يفعّل الخلط أولًا',
+    /cmd\('shuffle', \{ on: true \}\);[\s\S]{0,120}cmd\('source'/.test(webApp));
+
   const manifest = await fetch(`${base}/manifest.webmanifest`);
   check('ملف PWA موجود', manifest.status === 200);
   const icon = await fetch(`${base}/icons/icon-192.png`);

@@ -609,7 +609,63 @@ input[type=range]::-moz-range-thumb { width: 20px; height: 20px; border: none; b
 .pl-name { font-size: 15.5px; }
 .pl-count { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
 
-.search-row { display: flex; gap: 8px; margin-bottom: 12px; }
+.search-row { display: flex; gap: 8px; margin-bottom: 10px; }
+
+/*
+  الترتيب بأزرار ظاهرة لا بقائمة منسدلة: القائمة المنسدلة تخفي الخيارات
+  وتحتاج ضغطتين، والأزرار تُظهر الخيار الحالي وتبدّله بضغطة.
+*/
+.chips {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  margin-bottom: 10px;
+  scrollbar-width: none;
+}
+.chips::-webkit-scrollbar { display: none; }
+/* مقصورة على صف الترتيب: شريط أوقات الصلاة يستعمل الاسم chip نفسه */
+.chips > .chip {
+  flex: 0 0 auto;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 8px 15px;
+  font-size: 13.5px;
+  white-space: nowrap;
+  display: block;
+}
+.chips > .chip.on {
+  background: var(--accent);
+  border-color: transparent;
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+
+/* زرّ التشغيل العشوائي: حاضر في رأس القائمة حيث يُطلب */
+.wide-btn.shuffle {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  margin-bottom: 12px;
+}
+.wide-btn.shuffle::before {
+  content: '';
+  width: 18px;
+  height: 18px;
+  background: currentColor;
+  /* رسم العشوائي كقناع: لا يعتمد على خطّ الجهاز */
+  -webkit-mask: var(--shuffle-mask) center / contain no-repeat;
+  mask: var(--shuffle-mask) center / contain no-repeat;
+}
+:root {
+  --shuffle-mask: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h3.2c1.2 0 2.3.6 3 1.6l5.6 7.8c.7 1 1.8 1.6 3 1.6H21"/><path d="M3 17h3.2c1.2 0 2.3-.6 3-1.6l.9-1.2"/><path d="M14.3 8.8l.5-.7c.7-1 1.8-1.6 3-1.6H21"/><path d="m18.2 3.6 2.8 2.9-2.8 2.9"/><path d="m18.2 14.6 2.8 2.9-2.8 2.9"/></svg>');
+}
 .search-row input, .search-row select {
   background: var(--panel);
   border: 1px solid var(--line);

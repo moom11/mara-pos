@@ -172,13 +172,15 @@
       </header>
       <div class="search-row">
         <input type="search" id="search" placeholder="ابحث عن أغنية أو فنان…" />
-        <select id="sort">
-          <option value="title">الاسم</option>
-          <option value="artist">الفنان</option>
-          <option value="newest">الأحدث إضافة</option>
-          <option value="most-played">الأكثر تشغيلًا</option>
-        </select>
       </div>
+      <!-- الترتيب بأزرار ظاهرة لا بقائمة منسدلة: خيار واحد ضغطة واحدة -->
+      <div class="chips" id="sort-chips">
+        <button class="chip on" data-sort="title">الاسم</button>
+        <button class="chip" data-sort="artist">الفنان</button>
+        <button class="chip" data-sort="newest">الأحدث</button>
+        <button class="chip" data-sort="most-played">الأكثر تشغيلًا</button>
+      </div>
+      <button class="wide-btn shuffle admin-only" id="btn-shuffle-all">تشغيل عشوائي للمكتبة</button>
       <input type="file" id="file-input" accept="audio/*,.mp3,.m4a,.flac,.wav,.ogg" multiple hidden />
       <div class="upload-progress" id="upload-progress" hidden></div>
       <ul class="track-list" id="library-list"></ul>
@@ -212,6 +214,7 @@
           <button class="link danger" id="btn-delete-playlist">حذف</button>
         </header>
         <button class="wide-btn" id="btn-play-playlist">تشغيل هذه القائمة</button>
+        <button class="wide-btn shuffle admin-only" id="btn-shuffle-playlist">تشغيل عشوائي</button>
         <!-- الرفع من داخل القائمة: يضيفها للمكتبة وللقائمة في خطوة واحدة -->
         <button class="wide-btn ghost admin-only" id="btn-upload-playlist">رفع أغانٍ إلى هذه القائمة</button>
         <div class="upload-progress" id="playlist-upload-progress" hidden></div>

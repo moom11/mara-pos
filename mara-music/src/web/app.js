@@ -3,6 +3,8 @@
 /* واجهة التحكم من الجوال — مارا ميوزك */
 
 const $ = (id) => document.getElementById(id);
+/** معرّف قائمة "كل الأغاني" المدمجة — نفسه في العملية الرئيسية. */
+const ALL_TRACKS = '__all__';
 const el = (tag, className, text) => {
   const node = document.createElement(tag);
   if (className) node.className = className;
@@ -1767,10 +1769,15 @@ function wireEvents() {
     if (searchTimer) clearTimeout(searchTimer);
     searchTimer = setTimeout(() => loadLibrary(true), 300);
   });
-  $('sort').addEventListener('change', (e) => {
-    app.library.sort = e.target.value;
-    loadLibrary(true);
-  });
+  for (const chip of $('sort-chips').querySelectorAll('button')) {
+    chip.onclick = () => {
+      for (const other of $('sort-chips').querySelectorAll('button')) {
+        other.classList.toggle('on', other === chip);
+      }
+      app.library.sort = chip.dataset.sort;
+      loadLibrary(true);
+    };
+  }
   $('btn-more').onclick = () => {
     app.library.offset += app.library.limit;
     loadLibrary(false);
@@ -1820,6 +1827,24 @@ function wireEvents() {
       });
     }
   });
+  /*
+    تشغيل عشوائي بضغطة: يشغّل الخلط ثم يبدأ المصدر. كان يحتاج فتح "الآن"
+    وضغط زرّ العشوائي ثم اختيار القائمة — ثلاث خطوات لأمر يُطلب كل ليلة.
+  */
+  const shufflePlay = async (playlistId) => {
+    if (app.role !== 'admin') return toast('للمدير فقط');
+    try {
+      await cmd('shuffle', { on: true });
+      await cmd('source', { playlistId, autoplay: true });
+      switchView('now');
+    } catch (err) {
+      toast(err.message);
+    }
+  };
+  $('btn-shuffle-all').onclick = () => shufflePlay(ALL_TRACKS);
+  $('btn-shuffle-playlist').onclick = () => {
+    if (app.currentPlaylist) shufflePlay(app.currentPlaylist.id);
+  };
   $('btn-back-playlists').onclick = closePlaylist;
   $('btn-delete-playlist').onclick = async () => {
     if (!app.currentPlaylist || !confirm(`حذف قائمة "${app.currentPlaylist.name}"؟`)) return;
