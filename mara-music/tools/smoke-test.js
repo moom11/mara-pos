@@ -388,6 +388,30 @@ async function main() {
   check('المرفوع الثاني يدخل القائمة أيضًا',
     playlists.get(uploadList.id).trackIds.length === 2);
 
+  /*
+    حذف أغنية: الملف يُمحى من قرص الوحي، وتختفي من المكتبة ومن كل قائمة
+    هي فيها، وكل جهاز متصل يُبلَّغ في اللحظة نفسها.
+  */
+  const doomed = again.data.added[0];
+  const listWithDoomed = playlists.create('قائمة قبل الحذف');
+  playlists.addTracks(listWithDoomed.id, [doomed.id]);
+  const doomedPath = library.get(doomed.id).path;
+  check('الملف موجود على القرص قبل الحذف', fs.existsSync(doomedPath));
+
+  const delTrack = await call(`/api/library/${doomed.id}`, { method: 'DELETE' });
+  check('حذف الأغنية ينجح', delTrack.status === 200);
+  check('الملف يُمحى من قرص الجهاز', !fs.existsSync(doomedPath));
+  check('الأغنية تختفي من المكتبة', !library.tracks.has(doomed.id));
+  const listAfter = await call(`/api/playlists/${listWithDoomed.id}`);
+  check('الأغنية تختفي من القائمة التي كانت فيها',
+    !listAfter.data.tracks.some((t) => t.id === doomed.id));
+  playlists.remove(listWithDoomed.id);
+
+  // الواجهة: بلاغ المكتبة يجب أن يحدّث القوائم أيضًا لا المكتبة وحدها
+  const webApp = fs.readFileSync(path.join(__dirname, '..', 'src', 'web', 'app.js'), 'utf8');
+  check('بلاغ المكتبة يحدّث القائمة المفتوحة في الجوال',
+    /msg\.type === 'library'\)[\s\S]{0,400}?openPlaylist\(app\.currentPlaylist\.id\)/.test(webApp));
+
   const badList = await (async () => {
     const f = new FormData();
     f.append('files', new Blob([sample], { type: 'audio/mpeg' }), 'y.mp3');

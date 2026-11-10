@@ -300,7 +300,13 @@ function connectSocket() {
     if (msg.type === 'state') applyState(msg.data);
     else if (msg.type === 'tick') applyTick(msg.data);
     else if (msg.type === 'prayer') applyPrayer(msg.data);
-    else if (msg.type === 'library') loadLibrary(true);
+    else if (msg.type === 'library') {
+      // حذف أغنية أو إضافتها يمسّ القوائم أيضًا: جهاز فتح قائمة الآن
+      // كان يبقى يعرض أغنية محذوفة حتى يخرج من الشاشة ويعود
+      loadLibrary(true);
+      loadPlaylists();
+      if (app.currentPlaylist) openPlaylist(app.currentPlaylist.id);
+    }
     else if (msg.type === 'playlists') loadPlaylists();
     else if (msg.type === 'streams') loadStreams();
     else if (msg.type === 'fx') loadFx();
