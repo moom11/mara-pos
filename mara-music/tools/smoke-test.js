@@ -1285,6 +1285,22 @@ async function main() {
   const screenCss = fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'screen.css'), 'utf8');
   check('تنسيق شاشة الجهاز يفرض إخفاء عناصر hidden', /\[hidden\]\s*\{\s*display:\s*none\s*!important/.test(screenCss));
 
+  /*
+    حارس المظهر: التنسيق الجديد يعتمد على متغيّرات وطبقات، وكسر أحدها
+    لا يُسقط اختبارًا وظيفيًا لكنه يشوّه الشاشة على جوال صاحب المطعم.
+  */
+  check('ألوان الواجهة معرّفة كمتغيّرات لا أرقامًا متناثرة',
+    /--accent:/.test(webCss) && /--panel:/.test(webCss) && /--radius:/.test(webCss));
+  check('الجزء المنقضي من أشرطة التمرير ملوّن', /var\(--fill, 0%\)/.test(webCss));
+  check('الواجهة ترسل نسبة الامتلاء للتنسيق', /setProperty\('--fill'/.test(webApp));
+  check('خلفية شاشة "الآن" تأخذ لونها من الغلاف',
+    /\.now-backdrop/.test(webCss) && /backdrop\.style\.backgroundImage/.test(webApp));
+  const webHtml = fs.readFileSync(path.join(__dirname, '..', 'src', 'web', 'index.html'), 'utf8');
+  check('عنصر الخلفية موجود في الصفحة', webHtml.includes('id="now-backdrop"'));
+  // زرّ التشغيل يجب أن يبقى أبرز عنصر: هرمية الأزرار ليست ذوقًا بل سرعة وصول
+  check('زرّ التشغيل أكبر من بقية أزرار التحكّم',
+    /\.tbtn \{[\s\S]*?width: 44px/.test(webCss) && /\.tbtn\.play \{[\s\S]*?width: 74px/.test(webCss));
+
   const manifest = await fetch(`${base}/manifest.webmanifest`);
   check('ملف PWA موجود', manifest.status === 200);
   const icon = await fetch(`${base}/icons/icon-192.png`);

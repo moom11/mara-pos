@@ -370,12 +370,18 @@ function applyTick(tick) {
   paintProgress();
 }
 
+/** نسبة الامتلاء تصل للتنسيق في متغيّر: الجزء المنقضي من الشريط ملوّن. */
+function setFill(id, percent) {
+  $(id).style.setProperty('--fill', `${Math.max(0, Math.min(100, percent))}%`);
+}
+
 function paintProgress() {
   const duration = app.state ? app.state.duration || 0 : 0;
   const ratio = duration ? app.localPosition / duration : 0;
   $('mini-fill').style.width = `${Math.min(100, ratio * 100)}%`;
   if (app.dragging) return;
   $('seek').value = Math.round(ratio * 1000);
+  setFill('seek', ratio * 100);
   $('now-position').textContent = fmt(app.localPosition);
   $('now-duration').textContent = fmt(duration);
 }
@@ -426,13 +432,18 @@ function renderNow() {
   $('now-artist').textContent = track ? track.artist || '' : '';
 
   const cover = $('now-cover');
+  const backdrop = $('now-backdrop');
   if (track && track.cover) {
     if (cover.getAttribute('src') !== track.cover) cover.src = track.cover;
     cover.hidden = false;
     $('now-cover-fallback').hidden = true;
+    // خلفية الشاشة تأخذ لونها من غلاف الأغنية نفسها
+    backdrop.style.backgroundImage = `url("${track.cover}")`;
+    backdrop.classList.add('on');
   } else {
     cover.hidden = true;
     $('now-cover-fallback').hidden = false;
+    backdrop.classList.remove('on');
   }
 
   $('btn-play').textContent = s.status === 'playing' ? '❚❚' : '▶';
@@ -447,6 +458,7 @@ function renderNow() {
 
   const volPct = Math.round((s.volume || 0) * 100);
   if (document.activeElement !== $('volume')) $('volume').value = volPct;
+  setFill('volume', volPct);
   $('volume-value').textContent = `${volPct}%`;
   $('btn-mute').textContent = s.muted ? '🔇' : volPct === 0 ? '🔈' : volPct < 50 ? '🔉' : '🔊';
 
@@ -1628,6 +1640,7 @@ function wireEvents() {
   $('volume').addEventListener('input', (e) => {
     const pct = Number(e.target.value);
     $('volume-value').textContent = `${pct}%`;
+    setFill('volume', pct);
     sendVolume(pct / 100);
   });
 
@@ -1696,6 +1709,7 @@ function wireEvents() {
   const seek = $('seek');
   seek.addEventListener('pointerdown', () => { app.dragging = true; });
   seek.addEventListener('input', () => {
+    setFill('seek', seek.value / 10);
     const duration = app.state ? app.state.duration : 0;
     $('now-position').textContent = fmt((seek.value / 1000) * duration);
   });
