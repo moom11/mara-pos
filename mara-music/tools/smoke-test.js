@@ -412,6 +412,37 @@ async function main() {
   check('بلاغ المكتبة يحدّث القائمة المفتوحة في الجوال',
     /msg\.type === 'library'\)[\s\S]{0,400}?openPlaylist\(app\.currentPlaylist\.id\)/.test(webApp));
 
+  /*
+    العطل الذي ظهر على جهاز المحل: تدخل أغنية واحدة إلى القائمة ويضيع
+    الباقي. السبب أن مراقب المجلد يبدأ فحصًا من تلقائه حين تصل الملفات
+    إلى القرص، وفحص المكتبة العادي يرجع فورًا إن وجد فحصًا يعمل. فكانت
+    نتيجة الرفع تُحسب على مكتبة لم تر الملفات بعد.
+
+    نحاكي ذلك بإمساك راية الفحص أثناء الرفع ثم إطلاقها.
+  */
+  const manyList = playlists.create('قائمة الرفع المتعدّد');
+  const manyForm = new FormData();
+  for (let i = 1; i <= 4; i += 1) {
+    manyForm.append('files', new Blob([sample], { type: 'audio/mpeg' }), `دفعة ${i}.mp3`);
+  }
+  manyForm.append('playlistId', manyList.id);
+
+  library.scanning = true; // كأن المراقب يفحص الآن
+  const manyPromise = fetch(`${base}/api/upload`, {
+    method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: manyForm
+  });
+  setTimeout(() => { library.scanning = false; }, 400);
+  const manyData = await (await manyPromise).json();
+
+  check('رفع عدة أغانٍ دفعة واحدة يُدخلها كلها للقائمة',
+    manyData.playlist && manyData.playlist.added === 4,
+    `دخل ${manyData.playlist && manyData.playlist.added} من 4`);
+  check('رفع عدة أغانٍ يُدخلها كلها للمكتبة', manyData.added.length === 4);
+  check('القائمة فيها الأربع فعلًا', playlists.get(manyList.id).trackIds.length === 4);
+
+  for (const t of manyData.added) await library.deleteTrack(t.id);
+  playlists.remove(manyList.id);
+
   const badList = await (async () => {
     const f = new FormData();
     f.append('files', new Blob([sample], { type: 'audio/mpeg' }), 'y.mp3');

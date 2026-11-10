@@ -143,6 +143,24 @@ class Library extends EventEmitter {
     this.watcher.on('add', trigger).on('unlink', trigger).on('change', trigger);
   }
 
+  /**
+   * فحص مضمون: لا يرجع حتى يُجري فحصًا فعليًا يرى آخر الملفات.
+   *
+   * scan العادي يرجع فورًا إن كان فحص آخر يعمل، ويكتفي بجدولة فحص
+   * لاحق. هذا يكفي للمراقب الذي لا ينتظر نتيجة، ولا يكفي للرفع: من رفع
+   * عشرين أغنية ينتظر جوابًا عنها هي، لا عن حال المكتبة قبل لحظة.
+   */
+  async scanNow(options = {}) {
+    for (let attempt = 0; attempt < 150; attempt += 1) {
+      if (!this.scanning) {
+        const result = await this.scan(options);
+        if (!result || !result.queued) return result;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    return { queued: true };
+  }
+
   async scan({ full = false } = {}) {
     if (this.scanning) {
       this.rescanQueued = true;

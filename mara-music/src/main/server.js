@@ -482,15 +482,24 @@ function createServer(ctx) {
     }
 
     const before = new Set(library.tracks.keys());
-    const uploadedNames = new Set(files.map((f) => path.basename(f.path)));
-    await library.scan({ full: false });
+    /*
+      scanNow لا scan: المراقب يبدأ فحصًا من تلقائه حين تصل الملفات إلى
+      القرص، وscan العادي يرجع فورًا إن وجد فحصًا يعمل. فكانت نتيجة
+      الرفع تُحسب على مكتبة لم تر الملفات بعد، فتدخل القائمة أغنية
+      واحدة — ما لحق به الفحص الجاري — ويضيع الباقي.
+    */
+    await library.scanNow({ full: false });
     const added = library.list().filter((t) => !before.has(t.id));
 
     let inPlaylist = 0;
     if (playlist) {
-      // المرفوع الآن: الجديد، ومن كان موجودًا بالاسم نفسه فقد أراده المستخدم هنا
+      /*
+        نختار بمسارات الملفات التي حفظناها الآن، لا بما "جَدَّ" في
+        المكتبة: الملف الذي أدخله المراقب قبلنا ليس جديدًا وهو من رفعنا.
+      */
+      const uploadedPaths = new Set(files.map((f) => path.resolve(f.path)));
       const ids = library.list()
-        .filter((t) => !before.has(t.id) || uploadedNames.has(path.basename(t.path || '')))
+        .filter((t) => t.path && uploadedPaths.has(path.resolve(t.path)))
         .map((t) => t.id);
       const sizeBefore = playlist.trackIds.length;
       playlists.addTracks(playlist.id, ids);
